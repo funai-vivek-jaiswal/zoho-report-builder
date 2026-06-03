@@ -375,22 +375,22 @@ Zoho CRM enforces a daily API credit quota per org. Each COQL call consumes 1 cr
 sequenceDiagram
     participant U as User
     participant FE as React Widget
-    participant DF as Deluge: execute_custom_report
-    participant RTM as Report_Target_Modules (CRM Tab)
-    participant RTF as Report_Target_Fields (CRM Tab)
+    participant DF as execute_custom_report
+    participant RTM as Report_Target_Modules
+    participant RTF as Report_Target_Fields
     participant COQL as Zoho COQL Engine
 
-    U->>FE: Select modules, fields, filters; click Run
-    FE->>DF: execute_custom_report({config_json, page:1, page_size:200})
+    U->>FE: Select modules, fields, filters then click Run
+    FE->>DF: execute_custom_report(config_json, page 1, page_size 200)
     DF->>RTM: Validate each requested module exists in whitelist
-    RTM-->>DF: Validation OK / WHITELIST_VIOLATION
-    DF->>RTF: Validate each requested field exists; check Is_Join_Key for JOIN fields
-    RTF-->>DF: Validation OK / WHITELIST_VIOLATION
+    RTM-->>DF: Validation OK or WHITELIST_VIOLATION
+    DF->>RTF: Validate fields and check Is_Join_Key for JOIN fields
+    RTF-->>DF: Validation OK or WHITELIST_VIOLATION
     DF->>DF: Assert JOIN count <= 3
-    DF->>DF: Build COQL string with JOIN ON, WHERE, GROUP BY, LIMIT/OFFSET
+    DF->>DF: Build COQL with JOIN ON, WHERE, GROUP BY, LIMIT/OFFSET
     DF->>COQL: Execute COQL query
-    COQL-->>DF: Result rows (up to 200) + has_more flag
-    DF-->>FE: {status, data, page, has_more, credits_used_estimate}
+    COQL-->>DF: Result rows up to 200 with has_more flag
+    DF-->>FE: status, data, page, has_more, credits_used_estimate
     FE-->>U: Render read-only result table (copy-protected)
 ```
 
@@ -400,26 +400,26 @@ sequenceDiagram
 sequenceDiagram
     participant U as User
     participant FE as React Widget
-    participant DS as Deluge: save_user_report_setting
-    participant DSh as Deluge: share_report_setting
-    participant SRS as Saved_Report_Settings (CRM Tab)
+    participant DS as save_user_report_setting
+    participant DSh as share_report_setting
+    participant SRS as Saved_Report_Settings
     participant ZU as Zoho CRM Users API
 
-    U->>FE: Click Save; enter preset name
-    FE->>DS: save_user_report_setting({name, config_json})
-    DS->>SRS: Insert record (Owner = current_user)
+    U->>FE: Click Save and enter preset name
+    FE->>DS: save_user_report_setting(name, config_json)
+    DS->>SRS: Insert record with Owner = current_user
     SRS-->>DS: preset_id
-    DS-->>FE: {status: success, preset_id}
+    DS-->>FE: status success with preset_id
 
-    U->>FE: Click Share; pick users from org user list
-    FE->>DSh: share_report_setting({preset_id, share_with_user_ids})
-    DSh->>SRS: Fetch preset; verify Owner = current_user
+    U->>FE: Click Share and pick org users
+    FE->>DSh: share_report_setting(preset_id, share_with_user_ids)
+    DSh->>SRS: Fetch preset and verify Owner = current_user
     DSh->>ZU: Validate each user_id exists in org
     ZU-->>DSh: Users confirmed
-    DSh->>SRS: Update Shared_With_Users, set Is_Shared = true
+    DSh->>SRS: Update Shared_With_Users and set Is_Shared = true
     SRS-->>DSh: Updated record
-    DSh-->>FE: {status: success, shared_with: [...]}
-    FE-->>U: "Shared successfully" confirmation
+    DSh-->>FE: status success with shared_with list
+    FE-->>U: Shared successfully confirmation
 ```
 
 ### Flow 3: Load Shared Preset and Re-run
@@ -428,18 +428,18 @@ sequenceDiagram
 sequenceDiagram
     participant U2 as Recipient User
     participant FE as React Widget
-    participant DG as Deluge: get_my_report_settings
-    participant SRS as Saved_Report_Settings (CRM Tab)
-    participant DF as Deluge: execute_custom_report
+    participant DG as get_my_report_settings
+    participant SRS as Saved_Report_Settings
+    participant DF as execute_custom_report
 
     U2->>FE: Open widget
-    FE->>DG: get_my_report_settings({})
-    DG->>SRS: Search records WHERE Owner = me OR Shared_With_Users contains me
-    SRS-->>DG: Preset list (owned + shared)
-    DG-->>FE: {presets: [...]}
-    FE-->>U2: Show preset list (shared presets labeled)
-    U2->>FE: Select shared preset; click Run
-    FE->>DF: execute_custom_report({config_json from preset, page:1})
+    FE->>DG: get_my_report_settings
+    DG->>SRS: Search WHERE Owner = me OR Shared_With_Users contains me
+    SRS-->>DG: Preset list owned and shared
+    DG-->>FE: presets array
+    FE-->>U2: Show preset list with shared presets labeled
+    U2->>FE: Select shared preset and click Run
+    FE->>DF: execute_custom_report(config_json from preset, page 1)
     DF-->>FE: Report results
     FE-->>U2: Render read-only result table
 ```
