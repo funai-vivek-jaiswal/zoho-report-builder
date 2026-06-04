@@ -5,8 +5,31 @@
 **Author:** Vivek
 **Reviewers:** —
 **Project:** CRM Custom Report
-**PRD Reference:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req.md`
+**PRD Reference:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req_new_en.md`
 **ADR References:** —
+
+---
+
+## 0. Requirements Summary
+
+Derived from PRD Section 0. Full detail in the PRD reference above.
+
+### Must Requirements
+
+| Requirement | Approach |
+| :--- | :--- |
+| **Prohibition of screen copying** (excluding screenshots and browser PDF export) | CSS `user-select: none` globally in React. JavaScript intercepts `copy` (Ctrl+C) and `contextmenu` (right-click) events to block clipboard transfer. |
+| **Favorites save feature** (reuse of filters, field order, etc.) | Serialize selected source table, field list (ordered), filter conditions, and aggregation/grouping settings as a single JSON string stored in `Saved_Report_Settings.Config_JSON`. |
+| **Only the creator can reuse and edit** (others cannot edit or delete) | Identify user via Deluge `zoho.loginuser` at save time and set as record `Owner`. Configure `Saved_Report_Settings` custom tab with Zoho CRM Sharing Rules = **Private** to enforce system-level access control. |
+| **Admin-controlled master** (target tabs, fields, aggregation rules) | Admin-only master tabs (`Report_Target_Modules` / `Report_Target_Fields`). Widget loads this master on startup and maps only permitted objects, fields, and aggregation types to dropdowns. |
+
+### Want Requirements
+
+| Requirement | Approach |
+| :--- | :--- |
+| **JOIN retrieval via lookup references** (related tab access via COQL) | Add `Is_Lookup` attribute to `Report_Target_Fields`. When selected, use COQL dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) to dynamically fetch parent record fields — no explicit JOIN ON clause required. |
+| **Sharing with users other than the creator** | Owner-explicit sharing: store share-target user/role in the preset and add `OR share_target = logged_in_user` to retrieval WHERE clause. Optional: issue a sharing URL parameter. |
+| **API credit consumption consideration** | Consolidate all data access to `zoho.crm.coql` (up to 2,000 records per call). Cache results in React State. Execute backend call only when the "Generate Report" button is explicitly pressed (on-demand execution — no auto-refresh). |
 
 ---
 
@@ -23,9 +46,10 @@ Zoho CRM's built-in report functionality does not support dynamic, user-configur
 - Allow end users to select fields across multiple Zoho CRM modules and execute cross-module COQL JOIN queries.
 - Enforce admin-defined whitelists for which modules and fields users may query.
 - Allow users to save, overwrite, and load named report presets.
-- Allow users to share saved report presets with other users in the same Zoho org.
+- Allow users to share saved report presets with other users in the same Zoho org (explicit user/role sharing or URL parameter sharing).
 - Prevent unauthorized data extraction: no file download or clipboard copy of report results.
-- Stay within Zoho COQL credit limits by enforcing pagination and query constraints.
+- Stay within Zoho COQL credit limits by enforcing pagination, on-demand execution, and React State caching.
+- Support COQL dot notation for Lookup field access across related modules (`SELECT Lookup.Field FROM Module`).
 
 ### Non-Goals
 
@@ -92,14 +116,15 @@ graph TD
 
 ### 5.1 Report Execution Flow
 
-1. User selects primary module and additional join modules from the admin-whitelisted dropdown.
+1. User selects primary module and related modules from the admin-whitelisted dropdown.
 2. User picks fields from each module, optionally sets filter conditions and aggregation rules.
-3. Widget calls `execute_custom_report` Deluge function via `ZOHO.CRM.FUNCTIONS.execute()`.
-4. Deluge validates that all requested modules and fields exist in `Report_Target_Modules` / `Report_Target_Fields`.
-5. Deluge builds a dynamic COQL query with JOIN clauses, WHERE conditions, and optional GROUP BY / aggregate functions.
-6. COQL is executed against Zoho CRM; results are paginated (max 2,000 records per request).
-7. Results are returned as a JSON array to the frontend widget.
-8. Widget renders results in a read-only table with copy prevention active.
+3. Report conditions are held in React State. **No backend call is made until the user explicitly clicks "Generate Report"** (on-demand execution).
+4. Widget calls `execute_custom_report` Deluge function via `ZOHO.CRM.FUNCTIONS.execute()`.
+5. Deluge validates that all requested modules and fields exist in `Report_Target_Modules` / `Report_Target_Fields`.
+6. For Lookup-type fields, Deluge builds COQL using dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) rather than an explicit JOIN ON clause.
+7. COQL is executed via `zoho.crm.coql`; results are paginated (max 2,000 records per request).
+8. Results are returned as a JSON array and **cached in React State**. Subsequent UI interactions (sort, scroll) operate on the cached data without additional backend calls.
+9. Widget renders results in a read-only table with copy prevention active.
 
 ### 5.2 Preset Save / Share Flow
 
@@ -117,7 +142,7 @@ graph TD
 |---|---|---|---|
 | Zoho CRM Widget SDK | Embed widget in CRM page, get current user context | Zoho Widget OAuth (automatic via SDK) | `ZOHO.CRM.CONFIG.getCurrentUser()` |
 | Zoho CRM Functions (Deluge) | Execute server-side logic | Invoked via `ZOHO.CRM.FUNCTIONS.execute()` within widget context | No additional auth token needed |
-| Zoho CRM COQL | Query CRM data with JOIN | Implicit via Deluge `zoho.crm.searchRecords` or `invokeurl` COQL endpoint | Subject to Zoho API credit limits |
+| Zoho CRM COQL | Query CRM data; Lookup field access via dot notation | Deluge `zoho.crm.coql` (preferred; up to 2,000 records per call) | Subject to Zoho API credit limits |
 | Zoho CRM Custom Tabs | Persist admin config & user presets | CRM standard record read/write in Deluge | `Report_Target_Modules`, `Report_Target_Fields`, `Saved_Report_Settings` |
 
 ---
@@ -133,6 +158,7 @@ graph TD
 | Data at rest | Stored in Zoho CRM Custom Tabs; subject to Zoho's platform encryption |
 | **Download prevention** | No export endpoint exposed. Frontend has no download button. `Blob` / `URL.createObjectURL` never called. Backend returns JSON only — no file stream. |
 | **Copy prevention** | `user-select: none` on result table. `contextmenu` and `copy` events are intercepted and cancelled in the widget JS. |
+| **Preset access (platform level)** | `Saved_Report_Settings` custom tab configured with Zoho CRM Sharing Rules = **Private**. Platform enforces that only the Owner can view or edit the record. Shared access granted explicitly by the Owner. |
 | PII fields | Report results may contain PII (names, emails) from CRM records — display only, never persisted to browser storage |
 
 ### Threat Model
@@ -142,7 +168,7 @@ graph TD
 | User queries a module not in the admin whitelist | Deluge validates every requested module API name against `Report_Target_Modules` before executing COQL. Query is rejected if any module is absent. |
 | User crafts a malicious COQL string via the frontend payload | Deluge builds the COQL programmatically from validated field/module names — no raw user-supplied COQL string is ever executed. |
 | User copies report data via browser clipboard (Ctrl+C) | `copy` event listener calls `event.preventDefault()`. `user-select: none` prevents drag-selection. Right-click context menu is suppressed. |
-| Unauthorized user accesses another user's saved preset | `Saved_Report_Settings` records are owner-scoped; Deluge filters by `Owner = current user` OR shared access list. Records not accessible by others. |
+| Unauthorized user accesses another user's saved preset | `Saved_Report_Settings` tab is set to Sharing Rules = Private in Zoho CRM (platform-level enforcement). Deluge additionally filters by `Owner = current user` OR in shared access list as a defense-in-depth check. |
 | COQL credit exhaustion (DoS by heavy querying) | Pagination capped at 2,000 rows per call. Deluge enforces a maximum of 3 JOIN modules per query. Frontend disables the Run button during active execution. |
 | Shared report accessed by user outside the org | Zoho platform enforces org-level authentication. Share list stores Zoho User IDs; Deluge verifies current user ID is in the share list before returning results. |
 
@@ -164,8 +190,11 @@ graph TD
 
 - **No external backend**: The system is fully contained within the Zoho CRM platform. This avoids additional infrastructure costs and auth complexity but limits query performance control to COQL constraints.
 - **Admin-whitelist model**: Rather than allowing free-form COQL, all queryable modules and fields are pre-approved by an admin. This prevents data exposure and simplifies COQL injection defense.
+- **COQL dot notation for Lookup fields**: Related module fields are accessed via COQL dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) instead of explicit JOIN ON clauses. This is simpler to build dynamically and aligns with Zoho's recommended COQL pattern for Lookup traversal.
+- **`zoho.crm.coql` as sole query API**: All data retrieval uses `zoho.crm.coql` (max 2,000 records per call) instead of standard search APIs. This conserves API credits and eliminates N+1 fetch patterns.
+- **React State caching + on-demand execution**: Fetched results are stored in React State. Backend is only called when the user explicitly clicks "Generate Report." UI interactions (sort, scroll) operate on cached data, eliminating redundant API calls.
 - **JSON preset storage**: Report conditions are stored as a serialized JSON blob in `Config_JSON`. This allows flexible schema evolution without custom tab field changes, at the cost of losing server-side filter/search on condition internals.
-- **Sharing via stored user list, not role-based**: Sharing is explicit (named users), not role-based, to keep the sharing model simple and compatible with Zoho's user lookup API.
+- **Platform-level private sharing for presets**: `Saved_Report_Settings` is configured as Private in Zoho CRM Sharing Rules. This provides system-level access control independent of application logic, with Deluge performing an additional application-level check for shared access.
 - **No file download by design**: Download capability is deliberately excluded as a security requirement. Any future export requirement must go through a separate approval-gated flow.
 
 ---

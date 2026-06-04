@@ -6,7 +6,7 @@
 **Reviewers:** —
 **Project:** CRM Custom Report
 **HLD Reference:** `/home/vivek/project/INTERNAL/custom_report/design/HLD_custom_report.md`
-**PRD Reference:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req.md`
+**PRD Reference:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req_new_en.md`
 
 ---
 
@@ -21,6 +21,9 @@
 | FR-005: Prevent report download / clipboard copy | Section 6 — Copy & Download Prevention |
 | FR-006: COQL credit limit management | Section 5 — COQL Credit & Pagination Strategy |
 | FR-007: Multi-tab (module) JOIN with performance controls | Section 5 — JOIN Performance Design |
+| FR-008: On-demand execution and React State caching | Section 3 — Frontend Caching Strategy |
+| FR-009: COQL dot notation for Lookup field access | Section 4 — COQL Query Construction |
+| FR-010: Platform-level private sharing for presets | Section 2 — `Saved_Report_Settings` Constraints |
 
 ---
 
@@ -56,7 +59,8 @@ Admin-managed whitelist of queryable fields per module.
 | Is Join Key | `Is_Join_Key` | Checkbox | No | If true, this field can be used as a JOIN ON condition. Must be `Data_Type = Lookup`. |
 
 **Constraints:**
-- `Is_Join_Key` may only be `true` when `Data_Type = Lookup`. Non-lookup fields cannot be JOIN keys (not indexed in Zoho CRM).
+- `Is_Join_Key` may only be `true` when `Data_Type = Lookup`. Non-lookup fields cannot be used as related-field access keys.
+- When `Is_Join_Key = true`, COQL dot notation is used for field access (`SELECT LookupField.TargetField FROM Module`) — no explicit JOIN ON clause.
 - `Is_Aggregatable` and `Is_Groupable` are mutually exclusive for a given field in a single query (enforced in frontend).
 
 ---
@@ -70,30 +74,27 @@ Stores user-created report presets including sharing metadata.
 | Setting Name | `Name` | Single Line (255) | Yes | User-defined label |
 | Primary Module | `Target_Module` | Single Line (100) | Yes | Primary (FROM) module API name |
 | Config JSON | `Config_JSON` | Multi Line (Long Text) | Yes | Full report config — see schema below |
-| Owner | `Owner` | Lookup → Zoho User | Yes | Set to logged-in user on creation. Controls default visibility. |
+| Owner | `Owner` | Lookup → Zoho User | Yes | Identified via `zoho.loginuser` at save time. Controls default visibility. |
 | Shared With | `Shared_With_Users` | Multi Line | No | JSON array of Zoho User IDs who can read this preset. `[]` = private. |
 | Is Shared | `Is_Shared` | Checkbox | No | Derived flag: true if `Shared_With_Users` is non-empty. Used for quick filter. |
+
+**Platform Configuration (Required):**
+- The `Saved_Report_Settings` custom tab **must** be configured with Zoho CRM **Sharing Rules = Private**. This ensures that only the record Owner can view or edit their presets at the platform level, independent of application logic.
+- Shared access granted by the Owner is handled at the application level (Deluge WHERE clause) since Zoho's Private rule does not natively support field-based sharing exceptions.
 
 #### `Config_JSON` Schema
 
 ```json
 {
   "primary_module": "Leads",
-  "joins": [
-    {
-      "module": "Accounts",
-      "join_key_field": "Account_Name",
-      "join_type": "LEFT"
-    }
-  ],
   "select_fields": [
-    { "module": "Leads", "field": "Last_Name" },
-    { "module": "Leads", "field": "Annual_Revenue" },
-    { "module": "Accounts", "field": "Account_Name" }
+    { "field": "Last_Name" },
+    { "field": "Annual_Revenue" },
+    { "field": "Account_Name.Account_Name", "is_lookup": true },
+    { "field": "Account_Name.Phone", "is_lookup": true }
   ],
   "filters": [
     {
-      "module": "Leads",
       "field": "Lead_Status",
       "operator": "=",
       "value": "Open - Not Contacted"
@@ -102,43 +103,66 @@ Stores user-created report presets including sharing metadata.
   "aggregations": [
     {
       "function": "SUM",
-      "module": "Leads",
       "field": "Annual_Revenue",
       "alias": "Total_Revenue"
     }
   ],
   "group_by": [
-    { "module": "Accounts", "field": "Account_Name" }
+    { "field": "Account_Name.Account_Name", "is_lookup": true }
   ],
   "page": 1,
   "page_size": 200
 }
 ```
 
+> Note: Lookup traversal fields use dot notation (`LookupField.TargetField`) and are flagged with `"is_lookup": true`. There are no explicit `joins` entries — Zoho COQL resolves the related module automatically via the Lookup field definition.
+
 ---
 
 ### Sharing Model
 
-Sharing is user-explicit (not role-based). The `Shared_With_Users` field stores a JSON array of Zoho User IDs:
+Three mechanisms are available. Option A is the primary implementation; Options B and C are alternatives.
+
+**Option A — Stored User/Role List (primary)**
+
+The `Shared_With_Users` field stores a JSON array of Zoho User IDs explicitly granted access by the Owner:
 
 ```json
 ["user_id_1", "user_id_2"]
 ```
 
-Access rule enforced in every Deluge function:
+Deluge retrieval adds `OR share_target = logged_in_user` to the WHERE clause:
 
 ```
 visible_to_current_user = (record.Owner == current_user_id)
                         OR (current_user_id IN record.Shared_With_Users)
 ```
 
-**Cross-org sharing is blocked**: Zoho CRM enforces org-level session authentication. User IDs from other orgs cannot be resolved, so cross-org sharing fails silently.
+**Option B — URL Parameter Sharing (optional / future)**
+
+The Owner can generate a time-limited share token stored as a field in the preset record. A recipient with the URL parameter can load and run the preset without needing to be in `Shared_With_Users`. Token validation is handled in Deluge before returning results.
+
+**Cross-org sharing is blocked**: Zoho CRM enforces org-level session authentication. User IDs from other orgs cannot be resolved, so cross-org sharing fails silently in all options.
 
 ---
 
 ## 3. Deluge Function Contracts
 
 All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {arguments: payload})` from the React widget.
+
+### Frontend Caching Strategy (FR-008)
+
+To minimize API credit consumption:
+
+- **On-demand execution**: The backend (`execute_custom_report`) is called **only** when the user explicitly clicks the "Generate Report" button. Changing field selections, filters, or aggregation settings updates React State only — no background calls.
+- **React State cache**: Once results are returned from Deluge, they are stored in a `reportData` React State variable. Sorting, filtering the display, and scrolling operate entirely on this cached state.
+- **Cache invalidation**: The cache is cleared when the user clicks "Generate Report" again (new query) or modifies the report configuration. The UI shows a "Results may be outdated — click Generate to refresh" banner when config has changed since the last run.
+
+```
+User modifies config → React State updated → no backend call
+User clicks "Generate Report" → clear cache → call execute_custom_report → store result in reportData state
+User sorts table → operates on reportData state → no backend call
+```
 
 ---
 
@@ -169,7 +193,7 @@ All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {argume
 ```
 
 **Logic:**
-1. Get `current_user_id` from `zoho.crm.getUser("me")`.
+1. Get `current_user_id` from `zoho.loginuser` (Deluge built-in; returns the executing user's ID).
 2. Search `Saved_Report_Settings` where `Owner = current_user_id` — these are owned presets.
 3. Search `Saved_Report_Settings` where `Shared_With_Users` contains `current_user_id` — these are shared presets.
 4. Merge and deduplicate (a user cannot share a preset with themselves).
@@ -206,10 +230,11 @@ All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {argume
 ```
 
 **Logic:**
-1. Validate `config_json` parses as valid JSON.
-2. If `preset_id` is provided: fetch record, confirm `Owner = current_user_id` (reject if not owner — cannot overwrite another user's preset).
-3. Insert (create) or update (overwrite) the record in `Saved_Report_Settings`.
-4. Return the saved record ID.
+1. Get `current_user_id` from `zoho.loginuser`.
+2. Validate `config_json` parses as valid JSON.
+3. If `preset_id` is provided: fetch record, confirm `Owner = current_user_id` (reject if not owner — cannot overwrite another user's preset).
+4. Insert (create) or update (overwrite) the record in `Saved_Report_Settings`.
+5. Return the saved record ID.
 
 **Error Responses:**
 
@@ -242,11 +267,12 @@ All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {argume
 ```
 
 **Logic:**
-1. Fetch the preset; confirm `Owner = current_user_id` (only owner can manage sharing).
-2. Validate each user ID exists in the same Zoho org via `zoho.crm.searchRecords("users", ...)`.
-3. Merge new user IDs into the existing `Shared_With_Users` list (deduplicate).
-4. Update the record; set `Is_Shared = true`.
-5. Return the updated full share list.
+1. Get `current_user_id` from `zoho.loginuser`.
+2. Fetch the preset; confirm `Owner = current_user_id` (only owner can manage sharing).
+3. Validate each user ID exists in the same Zoho org via `zoho.crm.searchRecords("users", ...)`.
+4. Merge new user IDs into the existing `Shared_With_Users` list (deduplicate).
+5. Update the record; set `Is_Shared = true`.
+6. Return the updated full share list.
 
 **Error Responses:**
 
@@ -303,49 +329,71 @@ All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {argume
 
 ```
 1. Parse config_json
-2. For each module in [primary_module] + [joins[*].module]:
-     assert module.Module_API_Name EXISTS in Report_Target_Modules
+2. Assert primary_module EXISTS in Report_Target_Modules
 3. For each field in select_fields + filters + aggregations + group_by:
-     assert field.Field_API_Name EXISTS in Report_Target_Fields
-       WHERE Target_Module = that field's module
-4. For each join:
-     assert join.join_key_field has Is_Join_Key = true in Report_Target_Fields
-       (guarantees the field is a Lookup, which is indexed)
-5. assert len(joins) <= 3   // MAX JOIN LIMIT
-6. assert page_size <= 200  // credit conservation
+     if field.is_lookup == true:
+       lookup_part = field.field.split(".")[0]   // e.g., "Account_Name"
+       target_part = field.field.split(".")[1]   // e.g., "Account_Name"
+       assert lookup_part EXISTS in Report_Target_Fields
+         WHERE Target_Module = primary_module AND Is_Join_Key = true
+     else:
+       assert field.field EXISTS in Report_Target_Fields
+         WHERE Target_Module = primary_module
+4. Count lookup traversals (unique lookup_part values in select_fields)
+   assert lookup_traversal_count <= 3   // MAX LOOKUP TRAVERSAL LIMIT
+5. assert page_size <= 200              // credit conservation
 ```
 
-### 4.2 JOIN Condition Rules & Performance
+### 4.2 Lookup Field Access via COQL Dot Notation (FR-009)
 
-COQL JOIN syntax follows Zoho's `JOIN` clause:
+Related module fields are accessed using **COQL dot notation** — not explicit JOIN ON clauses. This is the recommended COQL pattern for Lookup-type field traversal and avoids the complexity of constructing JOIN conditions dynamically.
+
+**Dot notation syntax:**
 
 ```sql
-SELECT Leads.Last_Name, Accounts.Account_Name
+-- Access a Lookup field's related record field:
+SELECT Last_Name, Account_Name.Account_Name, Account_Name.Phone
 FROM Leads
-LEFT JOIN Accounts ON Leads.Account_Name = Accounts.id
-WHERE Leads.Lead_Status = 'Open - Not Contacted'
+WHERE Lead_Status = 'Open - Not Contacted'
 LIMIT 200 OFFSET 0
 ```
+
+In this example, `Account_Name` is the Lookup field on `Leads`, and `Account_Name.Account_Name` / `Account_Name.Phone` access fields on the related `Accounts` record.
+
+**How Deluge builds dot notation fields dynamically:**
+
+```
+For each field in select_fields where Is_Join_Key = true:
+    dotNotationField = "{LookupFieldAPIName}.{TargetFieldAPIName}"
+    Add to COQL SELECT list
+```
+
+**Comparison with explicit JOIN (not used):**
+
+| Approach | Used | Reason |
+|---|---|---|
+| COQL dot notation (`LookupField.TargetField`) | Yes | Native COQL Lookup traversal; no JOIN ON required; simpler to build dynamically |
+| Explicit `LEFT JOIN ... ON ...` | No | COQL does support explicit JOINs but dot notation is simpler for Lookup traversal and less error-prone |
 
 **Performance rules enforced by the Deluge function:**
 
 | Rule | Reason |
 |---|---|
-| JOIN keys must be `Lookup`-type fields only | Zoho indexes Lookup fields. Joining on plain text fields causes a full-scan — not supported in COQL. |
-| Maximum 3 JOIN modules per query | Each additional JOIN multiplies query cost. Beyond 3-way JOIN, response times exceed acceptable thresholds on large modules. |
+| Dot notation fields must have `Is_Join_Key = true` and `Data_Type = Lookup` | Only Lookup fields support dot notation. Plain text fields cannot traverse to related records. |
+| Maximum 3 Lookup traversals per query | Each additional dot notation traversal increases query scan cost. Beyond 3 traversals, performance degrades on large modules. |
 | At least one `WHERE` filter required when the primary module has > 50,000 records | Full-scan over large modules (Leads, Contacts) without a filter hits credit limits and degrades performance. Deluge checks module record count before executing. |
 | `LIMIT` fixed at `page_size` (max 200 per page); `OFFSET = (page - 1) * page_size` | COQL hard limit is 2,000 per request. We cap at 200 to conserve credits and keep response time < 5s. |
 | No `SELECT *` | Only explicitly whitelisted fields are included in SELECT, preventing accidental PII exposure from un-whitelisted fields. |
+| All COQL executed via `zoho.crm.coql` | Consolidates all data access to a single API method (up to 2,000 records per call). Avoids mixing standard search APIs which consume more credits per record. |
 
 ### 4.3 Aggregate Queries
 
 When `aggregations` is non-empty, the query uses GROUP BY:
 
 ```sql
-SELECT Accounts.Account_Name, SUM(Leads.Annual_Revenue) AS Total_Revenue
+SELECT Account_Name.Account_Name, SUM(Annual_Revenue) AS Total_Revenue
 FROM Leads
-LEFT JOIN Accounts ON Leads.Account_Name = Accounts.id
-GROUP BY Accounts.Account_Name
+GROUP BY Account_Name.Account_Name
 LIMIT 200 OFFSET 0
 ```
 
@@ -540,10 +588,11 @@ stateDiagram-v2
 
 | Requirement | Implementation |
 |---|---|
-| Auth enforcement | `zoho.crm.getUser("me")` called at the start of every Deluge function. If user context is unavailable, function returns `AUTH_FAILED` immediately. |
+| Auth enforcement | `zoho.loginuser` called at the start of every Deluge function to identify the executing user. If user context is unavailable, function returns `AUTH_FAILED` immediately. |
 | Whitelist authorization | Every field and module name in the incoming payload is validated against `Report_Target_Modules` / `Report_Target_Fields` before COQL is built. |
-| Preset ownership | `save_user_report_setting` and `share_report_setting` verify `Owner == current_user_id` before any mutation. |
-| Shared preset access | `get_my_report_settings` returns only records where `Owner = me` OR `me IN Shared_With_Users`. No other records exposed. |
+| Preset access (platform) | `Saved_Report_Settings` custom tab configured with Zoho CRM Sharing Rules = **Private**. Platform blocks access to records not owned by the current user before Deluge even runs. |
+| Preset ownership | `save_user_report_setting` and `share_report_setting` verify `Owner == current_user_id` (from `zoho.loginuser`) before any mutation. |
+| Shared preset access | `get_my_report_settings` returns only records where `Owner = me` OR `me IN Shared_With_Users`. No other records exposed. Platform Private rule is a defense-in-depth layer above this. |
 | No download vector | No file endpoint, no Blob, no base64 response. Copy events intercepted in frontend. |
 | Cross-org sharing blocked | User IDs validated via `zoho.crm.searchRecords("users")` — returns only users within the same org. |
 | COQL injection prevention | COQL string is built programmatically from validated, whitelisted identifiers. No raw user input is concatenated into the COQL string. |
@@ -586,10 +635,11 @@ zoho-crm-report-widget/
 
 | Test Case | Function | Coverage |
 |---|---|---|
-| Valid 2-module JOIN config executes without error | `execute_custom_report` | Happy path |
+| Valid single-module query with dot notation Lookup field executes without error | `execute_custom_report` | Happy path — dot notation |
+| Valid query with 3 Lookup traversals executes without error | `execute_custom_report` | Happy path — max traversals |
+| Request with 4 Lookup traversals returns `JOIN_LIMIT_EXCEEDED` | `execute_custom_report` | Traversal cap |
+| Dot notation field on non-Lookup field returns `WHITELIST_VIOLATION` | `execute_custom_report` | Dot notation key validation |
 | Request with module not in whitelist returns `WHITELIST_VIOLATION` | `execute_custom_report` | Whitelist enforcement |
-| Request with 4 JOIN modules returns `JOIN_LIMIT_EXCEEDED` | `execute_custom_report` | JOIN cap |
-| JOIN key field without `Is_Join_Key = true` returns `WHITELIST_VIOLATION` | `execute_custom_report` | JOIN key validation |
 | Save by non-owner returns `FORBIDDEN` | `save_user_report_setting` | Ownership check |
 | Share with user outside org returns `USER_NOT_FOUND` | `share_report_setting` | Cross-org block |
 | Shared preset appears in recipient's preset list | `get_my_report_settings` | Sharing visibility |
@@ -599,7 +649,9 @@ zoho-crm-report-widget/
 
 | Test Case | Systems Involved |
 |---|---|
-| Full report flow: select fields → run → paginate | React Widget + Deluge + COQL |
+| Full report flow with Lookup dot notation: select fields → run → results display | React Widget + Deluge + COQL |
+| Config change does NOT trigger backend call — only Generate Report button does | React Widget (state test) |
+| Second run uses fresh backend call, not stale cache | React Widget + Deluge |
 | Save → share → recipient loads and runs | React Widget + Deluge + `Saved_Report_Settings` |
 | Copy attempt on result table blocked | React Widget (browser event test) |
 | Download attempt returns no file | React Widget (no download link present) |
