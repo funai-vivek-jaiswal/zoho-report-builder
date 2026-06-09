@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "targets": [
+      "report_builder_poc_function"
+    ],
+    "ignore": [],
+    "source": "functions"
+  }
+}

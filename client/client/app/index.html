@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Report Builder — POC</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f9fafb;
+  --white: #ffffff;
+  --border: #e5e7eb;
+  --border2: #d1d5db;
+  --text: #111827;
+  --text2: #4b5563;
+  --text3: #9ca3af;
+  --accent: #2563eb;
+  --accent-light: #eff6ff;
+  --accent-border: #bfdbfe;
+  --green: #16a34a;
+  --green-light: #f0fdf4;
+  --yellow: #d97706;
+  --yellow-light: #fffbeb;
+  --red: #dc2626;
+  --red-light: #fef2f2;
+  --shared: #7c3aed;
+  --shared-light: #f5f3ff;
+  --sidebar-w: 220px;
+  --header-h: 48px;
+  --font: 'Geist', system-ui, sans-serif;
+  --mono: 'Geist Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* ── HEADER ── */
+.header {
+  height: var(--header-h);
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-title svg { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.credit-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--yellow-light);
+  border: 1px solid #fde68a;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--yellow);
+  font-family: var(--mono);
+}
+.credit-pill strong { font-weight: 600; }
+
+/* ── LAYOUT ── */
+.layout {
+  display: flex;
+  height: calc(100vh - var(--header-h));
+  overflow: hidden;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--white);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.sidebar-group { border-bottom: 1px solid var(--border); }
+.sidebar-group-label {
+  padding: 10px 14px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-empty {
+  padding: 6px 14px 10px;
+  font-size: 12px;
+  color: var(--text3);
+  font-style: italic;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  color: var(--text2);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+}
+.sidebar-item:hover { background: var(--bg); color: var(--text); }
+.sidebar-item.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 500;
+}
+.sidebar-item.shared {
+  color: var(--shared);
+}
+.sidebar-item.shared:hover, .sidebar-item.shared.active {
+  background: var(--shared-light);
+  border-left-color: var(--shared);
+  color: var(--shared);
+}
+.sidebar-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-filter { background: var(--accent); }
+.dot-shared { background: var(--shared); }
+.sidebar-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-item-del {
+  font-size: 14px;
+  color: var(--text3);
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.sidebar-item:hover .sidebar-item-del { display: block; }
+.sidebar-item-del:hover { color: var(--red); }
+.sidebar-badge {
+  font-size: 10px;
+  background: var(--shared-light);
+  color: var(--shared);
+  border: 1px solid #ddd6fe;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-family: var(--mono);
+}
+
+/* ── MAIN ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── BUILDER ── */
+.builder {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  transition: max-height 0.25s ease;
+}
+.builder.collapsed { max-height: 46px; overflow: hidden; }
+
+.builder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  cursor: pointer;
+  user-select: none;
+}
+.builder-header-left {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.builder-summary {
+  font-weight: 400;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text3);
+  display: none;
+}
+.builder.collapsed .builder-summary { display: inline; }
+.builder-toggle-btn {
+  font-size: 11px;
+  color: var(--text3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.builder-body { padding: 0 18px 18px; }
+
+/* ── SECTION ── */
+.section { margin-bottom: 18px; }
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* ── FORM ELEMENTS ── */
+select, input[type="text"] {
+  background: var(--white);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239ca3af'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 26px;
+  cursor: pointer;
+}
+select:focus, input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+}
+
+/* ── MODULE ROW ── */
+.module-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.field-group { display: flex; flex-direction: column; gap: 4px; }
+.field-group label { font-size: 11.5px; color: var(--text2); font-weight: 500; }
+.field-group select { min-width: 155px; }
+
+/* ── FIELDS GRID ── */
+.fields-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.field-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text2);
+  background: var(--white);
+  transition: all 0.1s;
+  user-select: none;
+}
+.field-chip:hover { border-color: var(--accent); color: var(--accent); }
+.field-chip.checked {
+  background: var(--accent-light);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 500;
+}
+.field-chip input { display: none; }
+.field-type-badge {
+  font-size: 10px;
+  color: var(--text3);
+  font-family: var(--mono);
+}
+.field-chip.checked .field-type-badge { color: #93c5fd; }
+.field-join-mark { color: var(--green); font-size: 10px; }
+
+/* ── FILTERS ── */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.btn-remove {
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 3px;
+  transition: color 0.1s;
+}
+.btn-remove:hover { color: var(--red); }
+
+/* ── AGGREGATION ── */
+.agg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+.agg-as { color: var(--text3); font-size: 11.5px; }
+.groupby-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text2);
+  font-weight: 500;
+}
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:disabled {
+  background: var(--border);
+  color: var(--text3);
+  cursor: not-allowed;
+}
+.btn-outline {
+  background: var(--white);
+  color: var(--text2);
+  border: 1px solid var(--border2);
+}
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-ghost {
+  background: none;
+  color: var(--accent);
+  border: 1px dashed var(--accent-border);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.btn-ghost:hover { background: var(--accent-light); }
+.action-row { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+.hint-text { font-size: 12px; color: var(--text3); }
+
+/* ── STALE WARNING ── */
+.stale-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 18px;
+  background: var(--yellow-light);
+  border-bottom: 1px solid #fde68a;
+  font-size: 12px;
+  color: var(--yellow);
+}
+.stale-bar.visible { display: flex; }
+
+/* ── RESULTS ── */
+.results-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.results-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pill {
+  font-size: 11px;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-weight: 400;
+}
+.pill-blue { background: var(--accent-light); color: var(--accent); border: 1px solid var(--accent-border); }
+.pill-gray { background: var(--bg); color: var(--text3); border: 1px solid var(--border); }
+
+.results-wrap {
+  flex: 1;
+  overflow: auto;
+}
+.results-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--text3);
+}
+.results-empty-icon { font-size: 28px; opacity: 0.25; }
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--white);
+}
+.results-table th {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border2);
+  border-right: 1px solid var(--border);
+  padding: 8px 14px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  position: sticky;
+  top: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.results-table th:hover { color: var(--text); }
+.results-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 8px 14px;
+  color: var(--text);
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.results-table tr:hover td { background: var(--accent-light); }
+.results-table td.num { color: var(--green); text-align: right; font-weight: 500; }
+
+.results-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 18px;
+  background: var(--white);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.copy-notice {
+  font-size: 11px;
+  color: var(--text3);
+  font-style: italic;
+}
+
+/* ── MODAL ── */
+.modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--white);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 22px;
+  width: 360px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+}
+.modal h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+.modal p { font-size: 12.5px; color: var(--text2); margin-bottom: 14px; line-height: 1.6; }
+.modal label { font-size: 12px; font-weight: 500; color: var(--text2); display: block; margin-bottom: 5px; }
+.modal input[type="text"] { width: 100%; margin-bottom: 14px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── SPINNER ── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 11px; height: 11px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.5s linear infinite;
+  vertical-align: middle;
+}
+
+/* ── SCROLLBARS ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-title">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+    CRM Report Builder
+    <span style="font-size:11px;color:var(--text3);font-weight:400;font-family:var(--mono)">POC v0.1</span>
+  </div>
+  <div class="header-right">
+    <div class="credit-pill">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      API credits used: <strong id="creditCount">0</strong>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Favourite Filters -->
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">
+        Favourite Filters
+        <button style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:16px;line-height:1;padding:0" title="Save current filters as favourite" onclick="openSaveFilterModal()">+</button>
+      </div>
+      <div id="favFilterList">
+        <div class="sidebar-empty" id="favEmpty">No saved filters yet.</div>
+      </div>
+    </div>
+
+    <!-- Shared Reports -->
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">
+        Shared Reports
+        <span class="sidebar-badge">admin</span>
+      </div>
+      <div id="sharedReportList"></div>
+    </div>
+
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div class="main">
+
+    <!-- BUILDER -->
+    <div class="builder" id="builder">
+      <div class="builder-header" onclick="toggleBuilder()">
+        <div class="builder-header-left">
+          Build Your Report
+          <span class="builder-summary" id="builderSummary"></span>
+        </div>
+        <span class="builder-toggle-btn" id="builderToggleBtn">▲ Collapse</span>
+      </div>
+
+      <div class="builder-body">
+
+        <!-- MODULES -->
+        <div class="section">
+          <div class="section-title">Modules</div>
+          <div class="module-row">
+            <div class="field-group">
+              <label>Primary Module</label>
+              <select id="primaryModule" onchange="onModuleChange()">
+                <option value="">Select a module…</option>
+                <option value="Leads">Leads</option>
+                <option value="Contacts">Contacts</option>
+                <option value="Accounts">Accounts</option>
+                <option value="Deals">Deals</option>
+              </select>
+            </div>
+            <div class="field-group" id="joinWrap" style="display:none">
+              <label>JOIN Module</label>
+              <select id="joinModule" onchange="onJoinChange()">
+                <option value="">(none)</option>
+                <option value="Accounts">Accounts</option>
+                <option value="Contacts">Contacts</option>
+                <option value="Leads">Leads</option>
+                <option value="Deals">Deals</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="btn btn-ghost" id="addJoinBtn" onclick="showJoin()" style="margin-bottom:1px">+ Add JOIN</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- FIELDS -->
+        <div class="section" id="fieldsSection" style="display:none">
+          <div class="section-title">Fields <span style="font-weight:400;font-size:11px;color:var(--text3);text-transform:none;letter-spacing:0">(click to toggle)</span></div>
+          <div class="fields-grid" id="fieldsGrid"></div>
+          <div class="results-empty" id="noFieldsMsg" style="display:none;height:auto;padding:10px 0"><span style="font-size:12px">Select a module above to see fields.</span></div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="section" id="filtersSection" style="display:none">
+          <div class="section-title">Filters</div>
+          <div id="filterRows"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <button class="btn btn-ghost" onclick="addFilter()">+ Add Filter</button>
+            <button class="btn btn-ghost" onclick="openSaveFilterModal()" id="saveFilterBtn" style="display:none;border-color:#bbf7d0;color:var(--green)">☆ Save as Favourite</button>
+          </div>
+        </div>
+
+        <!-- AGGREGATION -->
+        <div class="section" id="aggSection" style="display:none">
+          <div class="section-title">Aggregation <span style="font-weight:400;font-size:11px;color:var(--text3);text-transform:none;letter-spacing:0">(optional)</span></div>
+          <div id="aggRows"></div>
+          <div id="groupByRow" style="display:none">
+            <div class="groupby-row">
+              <span>GROUP BY</span>
+              <select id="groupByField" onchange="markDirty()"></select>
+            </div>
+          </div>
+          <button class="btn btn-ghost" style="margin-top:8px" onclick="addAgg()">+ Add Aggregation</button>
+        </div>
+
+        <!-- GENERATE -->
+        <div class="action-row">
+          <button class="btn btn-primary" id="generateBtn" onclick="generateReport()" disabled>▶ Generate Report</button>
+          <span class="hint-text" id="generateHint">Select a module to begin</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- STALE WARNING -->
+    <div class="stale-bar" id="staleBar">
+      ⚠ Configuration changed since last run — click Generate to refresh
+    </div>
+
+    <!-- RESULTS -->
+    <div class="results-area">
+      <div class="results-header">
+        <div class="results-title">
+          Results
+          <span class="pill pill-blue" id="pageTag" style="display:none"></span>
+        </div>
+        <span class="pill pill-gray" id="resultsMeta" style="display:none"></span>
+      </div>
+
+      <div class="results-wrap" id="resultsWrap">
+        <div class="results-empty" id="resultsEmpty" style="height:100%;display:flex">
+          <div class="results-empty-icon">⬡</div>
+          <div style="font-size:13px">Select modules and fields above, then click Generate Report.</div>
+        </div>
+      </div>
+
+      <div class="results-footer" id="resultsFooter" style="display:none">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="hint-text" id="footerInfo"></span>
+          <button class="btn btn-outline" id="nextPageBtn" onclick="loadNextPage()" style="display:none;padding:5px 12px;font-size:12px">Load Next Page →</button>
+        </div>
+        <div class="copy-notice">⚠ Right-click, Ctrl+C and text selection are disabled on this table</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SAVE FILTER MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Save Filter as Favourite</h3>
+    <p>This saves your current filter configuration so you can reload it instantly from the sidebar. The module and field selections are also remembered.</p>
+    <label>Filter name</label>
+    <input type="text" id="filterNameInput" placeholder="e.g. Open Leads – Q2" />
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveFilter()">Save Filter</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MOCK DATA ──────────────────────────────────────────────────────────
+const MODULES = {
+  Leads: {
+    fields: [
+      { name:'First Name',     api:'First_Name',      type:'Text' },
+      { name:'Last Name',      api:'Last_Name',       type:'Text' },
+      { name:'Email',          api:'Email',           type:'Email' },
+      { name:'Phone',          api:'Phone',           type:'Phone' },
+      { name:'Lead Status',    api:'Lead_Status',     type:'PickList', values:['Open-Not Contacted','Working-Contacted','Closed-Converted','Closed-Not Converted'] },
+      { name:'Annual Revenue', api:'Annual_Revenue',  type:'Number' },
+      { name:'Lead Source',    api:'Lead_Source',     type:'PickList', values:['Web','Phone','Email','Other'] },
+      { name:'Company',        api:'Company',         type:'Text' },
+      { name:'Account Name',   api:'Account_Name',    type:'Lookup', module:'Accounts' },
+    ],
+    mockRows: () => [
+      ['Smith','Alice','alice@acme.com','555-1000','Open-Not Contacted',150000,'Web','Acme Corp','Acme Corp'],
+      ['Jones','Bob','bob@beta.com','555-2000','Working-Contacted',220000,'Phone','Beta LLC','Beta LLC'],
+      ['Tanaka','Carol','c@gamma.jp','555-3000','Closed-Converted',80000,'Email','Gamma Inc','Gamma Inc'],
+      ['Patel','David','d@delta.in','555-4000','Open-Not Contacted',310000,'Web','Delta Co','Delta Co'],
+      ['Müller','Eva','e@euro.de','555-5000','Working-Contacted',95000,'Other','Euro GmbH','Euro GmbH'],
+      ['Chen','Frank','f@asiaFin.sg','555-6000','Open-Not Contacted',400000,'Web','Asia Fin','Asia Fin'],
+      ['Okafor','Grace','g@west.ng','555-7000','Closed-Converted',55000,'Phone','West Ltd','West Ltd'],
+      ['Rivera','Han','h@sur.mx','555-8000','Working-Contacted',175000,'Email','Sur SA','Sur SA'],
+    ]
+  },
+  Contacts: {
+    fields: [
+      { name:'First Name',   api:'First_Name',    type:'Text' },
+      { name:'Last Name',    api:'Last_Name',     type:'Text' },
+      { name:'Email',        api:'Email',         type:'Email' },
+      { name:'Phone',        api:'Phone',         type:'Phone' },
+      { name:'Department',   api:'Department',    type:'Text' },
+      { name:'Title',        api:'Title',         type:'Text' },
+      { name:'Account Name', api:'Account_Name',  type:'Lookup', module:'Accounts' },
+    ],
+    mockRows: () => [
+      ['Alice','Smith','alice@acme.com','555-1001','Sales','Account Manager','Acme Corp'],
+      ['Bob','Jones','bob@beta.com','555-2001','IT','CTO','Beta LLC'],
+      ['Carol','Lee','carol@gamma.jp','555-3001','HR','HR Lead','Gamma Inc'],
+      ['David','Patel','david@delta.in','555-4001','Finance','CFO','Delta Co'],
+      ['Eva','Müller','eva@euro.de','555-5001','Engineering','VP Eng','Euro GmbH'],
+    ]
+  },
+  Accounts: {
+    fields: [
+      { name:'Account Name',  api:'Account_Name',      type:'Text' },
+      { name:'Industry',      api:'Industry',          type:'PickList', values:['Technology','Finance','Healthcare','Manufacturing','Other'] },
+      { name:'Annual Revenue',api:'Annual_Revenue',    type:'Number' },
+      { name:'Phone',         api:'Phone',             type:'Phone' },
+      { name:'Website',       api:'Website',           type:'URL' },
+      { name:'Employees',     api:'No_of_Employees',   type:'Number' },
+      { name:'Owner',         api:'Owner',             type:'Text' },
+    ],
+    mockRows: () => [
+      ['Acme Corp','Technology',2500000,'555-9000','acme.com',320,'J. Connor'],
+      ['Beta LLC','Finance',1800000,'555-9001','beta.com',150,'M. Lee'],
+      ['Gamma Inc','Healthcare',950000,'555-9002','gamma.jp',80,'T. Sato'],
+      ['Delta Co','Manufacturing',4100000,'555-9003','delta.in',550,'R. Patel'],
+      ['Euro GmbH','Technology',1200000,'555-9004','euro.de',200,'H. Müller'],
+    ]
+  },
+  Deals: {
+    fields: [
+      { name:'Deal Name',    api:'Deal_Name',     type:'Text' },
+      { name:'Amount',       api:'Amount',        type:'Number' },
+      { name:'Stage',        api:'Stage',         type:'PickList', values:['Qualification','Proposal','Negotiation','Closed Won','Closed Lost'] },
+      { name:'Close Date',   api:'Close_Date',    type:'Date' },
+      { name:'Probability',  api:'Probability',   type:'Number' },
+      { name:'Account Name', api:'Account_Name',  type:'Lookup', module:'Accounts' },
+      { name:'Contact Name', api:'Contact_Name',  type:'Lookup', module:'Contacts' },
+    ],
+    mockRows: () => [
+      ['Q2 Expansion',150000,'Proposal','2026-06-30',60,'Acme Corp','Alice Smith'],
+      ['Platform Deal',340000,'Closed Won','2026-04-15',100,'Beta LLC','Bob Jones'],
+      ['Support Renewal',45000,'Negotiation','2026-07-31',80,'Gamma Inc','Carol Lee'],
+      ['New Contract',220000,'Qualification','2026-09-01',30,'Delta Co','David Patel'],
+      ['Enterprise 2027',800000,'Proposal','2027-01-31',50,'Euro GmbH','Eva Müller'],
+    ]
+  }
+};
+
+// Admin-shared reports (read-only, simulating "shared report folder" from feasibility §5.3)
+const SHARED_REPORTS = [
+  { id:'sr1', name:'All Open Leads', module:'Leads', filters:[{field:'Leads::Lead_Status', op:'=', value:'Open-Not Contacted'}], fields:['First_Name','Last_Name','Annual_Revenue','Lead_Source'] },
+  { id:'sr2', name:'Q2 Closed Deals', module:'Deals', filters:[{field:'Deals::Stage', op:'=', value:'Closed Won'}], fields:['Deal_Name','Amount','Close_Date','Account_Name'] },
+  { id:'sr3', name:'Enterprise Accounts', module:'Accounts', filters:[{field:'Accounts::Industry', op:'=', value:'Technology'}], fields:['Account_Name','Annual_Revenue','Employees','Owner'] },
+];
+
+// ── STATE ──────────────────────────────────────────────────────────────
+let state = {
+  primaryModule: '',
+  joinModule: '',
+  selectedFields: [],
+  filters: [],
+  aggs: [],
+  groupByField: '',
+  currentPage: 1,
+  lastRunConfig: null,
+  credits: 0,
+  favFilters: JSON.parse(localStorage.getItem('crm_fav_filters') || '[]'),
+  dirty: false,
+};
+let filterIdSeq = 0, aggIdSeq = 0;
+
+// ── CREDITS ──────────────────────────────────────────────────────────
+function addCredit(n) {
+  state.credits += n;
+  document.getElementById('creditCount').textContent = state.credits;
+}
+
+// ── MODULE CHANGE ─────────────────────────────────────────────────────
+function onModuleChange() {
+  state.primaryModule = document.getElementById('primaryModule').value;
+  state.joinModule = '';
+  document.getElementById('joinModule').value = '';
+  state.selectedFields = [];
+  state.filters = [];
+  state.aggs = [];
+  state.groupByField = '';
+  filterIdSeq = 0; aggIdSeq = 0;
+  markDirty();
+  renderFields();
+  renderFilters();
+  renderAggs();
+  updateGenerateBtn();
+  if (state.primaryModule) addCredit(2); // widget load: fetch module + fields
+}
+
+function onJoinChange() {
+  state.joinModule = document.getElementById('joinModule').value;
+  // remove fields from previous join
+  state.selectedFields = state.selectedFields.filter(f => f.module === state.primaryModule);
+  markDirty();
+  renderFields();
+}
+
+function showJoin() {
+  document.getElementById('joinWrap').style.display = '';
+  document.getElementById('addJoinBtn').style.display = 'none';
+}
+
+function getAllFields() {
+  const out = [];
+  if (state.primaryModule && MODULES[state.primaryModule])
+    MODULES[state.primaryModule].fields.forEach(f => out.push({...f, module:state.primaryModule}));
+  if (state.joinModule && MODULES[state.joinModule])
+    MODULES[state.joinModule].fields.forEach(f => out.push({...f, module:state.joinModule, fromJoin:true}));
+  return out;
+}
+
+function renderFields() {
+  const sec = document.getElementById('fieldsSection');
+  const grid = document.getElementById('fieldsGrid');
+  const filSec = document.getElementById('filtersSection');
+  const aggSec = document.getElementById('aggSection');
+  if (!state.primaryModule) {
+    sec.style.display = 'none'; filSec.style.display = 'none'; aggSec.style.display = 'none';
+    return;
+  }
+  sec.style.display = ''; filSec.style.display = ''; aggSec.style.display = '';
+  const fields = getAllFields();
+  grid.innerHTML = '';
+  fields.forEach(f => {
+    const checked = state.selectedFields.some(s => s.module === f.module && s.api === f.api);
+    const chip = document.createElement('label');
+    chip.className = 'field-chip' + (checked ? ' checked' : '');
+    chip.innerHTML = `
+      <input type="checkbox" ${checked?'checked':''}>
+      ${f.fromJoin ? '<span class="field-join-mark">◆</span>' : ''}
+      <span>${f.name}</span>
+      <span class="field-type-badge">${f.type}</span>
+    `;
+    chip.querySelector('input').addEventListener('change', () => toggleField(f.module, f.api));
+    grid.appendChild(chip);
+  });
+  updateAggFieldOptions();
+  updateFilterFieldOptions();
+  updateGroupByOptions();
+  updateGenerateBtn();
+}
+
+function toggleField(module, api) {
+  const idx = state.selectedFields.findIndex(f => f.module === module && f.api === api);
+  if (idx >= 0) state.selectedFields.splice(idx,1);
+  else {
+    const f = getAllFields().find(x => x.module===module && x.api===api);
+    if (f) state.selectedFields.push(f);
+  }
+  markDirty();
+  renderFields();
+  updateGenerateBtn();
+}
+
+// ── FILTERS ───────────────────────────────────────────────────────────
+function addFilter() {
+  state.filters.push({ id:++filterIdSeq, field:'', op:'=', value:'' });
+  markDirty();
+  renderFilters();
+}
+function removeFilter(id) {
+  state.filters = state.filters.filter(f => f.id!==id);
+  markDirty();
+  renderFilters();
+}
+function getFilterableFields() { return getAllFields().filter(f => f.type !== 'Lookup'); }
+
+function renderFilters() {
+  const container = document.getElementById('filterRows');
+  container.innerHTML = '';
+  state.filters.forEach(f => {
+    const fields = getFilterableFields();
+    const fieldOpts = fields.map(x =>
+      `<option value="${x.module}::${x.api}" ${f.field===x.module+'::'+x.api?'selected':''}>${x.module!==state.primaryModule?'◆ ':''}${x.name}</option>`
+    ).join('');
+    const selF = fields.find(x => x.module+'::'+x.api === f.field);
+    let valInput = `<input type="text" value="${f.value}" style="width:140px" placeholder="value" onchange="updateFilter(${f.id},'value',this.value)">`;
+    if (selF?.values) {
+      valInput = `<select onchange="updateFilter(${f.id},'value',this.value)">
+        <option value="">—</option>
+        ${selF.values.map(v=>`<option ${f.value===v?'selected':''}>${v}</option>`).join('')}
+      </select>`;
+    }
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+    row.innerHTML = `
+      <select onchange="updateFilter(${f.id},'field',this.value)">
+        <option value="">Field…</option>${fieldOpts}
+      </select>
+      <select onchange="updateFilter(${f.id},'op',this.value)">
+        ${['=','!=','>','<','>=','<=','contains'].map(o=>`<option ${f.op===o?'selected':''}>${o}</option>`).join('')}
+      </select>
+      ${valInput}
+      <button class="btn-remove" onclick="removeFilter(${f.id})">×</button>
+    `;
+    container.appendChild(row);
+  });
+  // show save-filter button only when there are filters
+  const sfBtn = document.getElementById('saveFilterBtn');
+  if (sfBtn) sfBtn.style.display = state.filters.length ? '' : 'none';
+}
+
+function updateFilter(id, key, val) {
+  const f = state.filters.find(x=>x.id===id);
+  if (f) { f[key]=val; markDirty(); renderFilters(); }
+}
+function updateFilterFieldOptions() { renderFilters(); }
+
+// ── AGGREGATION ───────────────────────────────────────────────────────
+function addAgg() {
+  const num = getAllFields().filter(f => f.type==='Number');
+  if (!num.length) return;
+  state.aggs.push({ id:++aggIdSeq, fn:'SUM', field:num[0].module+'::'+num[0].api, alias:'' });
+  markDirty(); renderAggs();
+}
+function removeAgg(id) { state.aggs=state.aggs.filter(a=>a.id!==id); markDirty(); renderAggs(); }
+
+function renderAggs() {
+  const container = document.getElementById('aggRows');
+  container.innerHTML = '';
+  const num = getAllFields().filter(f=>f.type==='Number');
+  const numOpts = num.map(f=>`<option value="${f.module}::${f.api}">${f.module!==state.primaryModule?'◆ ':''}${f.name}</option>`).join('');
+  state.aggs.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'agg-row';
+    row.innerHTML = `
+      <select onchange="updateAgg(${a.id},'fn',this.value)">
+        ${['SUM','AVG','COUNT','MIN','MAX'].map(fn=>`<option ${a.fn===fn?'selected':''}>${fn}</option>`).join('')}
+      </select>
+      <select onchange="updateAgg(${a.id},'field',this.value)">${numOpts}</select>
+      <span class="agg-as">AS</span>
+      <input type="text" value="${a.alias}" placeholder="alias" style="width:110px" onchange="updateAgg(${a.id},'alias',this.value)">
+      <button class="btn-remove" onclick="removeAgg(${a.id})">×</button>
+    `;
+    container.appendChild(row);
+  });
+  updateGroupByOptions();
+}
+function updateAgg(id,key,val) { const a=state.aggs.find(x=>x.id===id); if(a){a[key]=val;markDirty();renderAggs();} }
+function updateAggFieldOptions() { renderAggs(); }
+
+function updateGroupByOptions() {
+  const gbRow = document.getElementById('groupByRow');
+  const gbSel = document.getElementById('groupByField');
+  if (!state.aggs.length) { gbRow.style.display='none'; return; }
+  gbRow.style.display='';
+  const fields = getAllFields();
+  const prev = state.groupByField;
+  gbSel.innerHTML = '<option value="">— none —</option>' +
+    fields.map(f=>`<option value="${f.module}::${f.api}" ${prev===f.module+'::'+f.api?'selected':''}>${f.module!==state.primaryModule?'◆ ':''}${f.name}</option>`).join('');
+  gbSel.onchange = ()=>{ state.groupByField=gbSel.value; markDirty(); };
+}
+
+// ── GENERATE ──────────────────────────────────────────────────────────
+function updateGenerateBtn() {
+  const btn = document.getElementById('generateBtn');
+  const hint = document.getElementById('generateHint');
+  if (!state.primaryModule) { btn.disabled=true; hint.textContent='Select a module to begin'; }
+  else if (!state.selectedFields.length) { btn.disabled=true; hint.textContent='Select at least one field'; }
+  else { btn.disabled=false; hint.textContent=''; }
+}
+
+function markDirty() {
+  state.dirty = true;
+  if (state.lastRunConfig) document.getElementById('staleBar').classList.add('visible');
+}
+
+function getConfig() {
+  return { primaryModule:state.primaryModule, joinModule:state.joinModule,
+    selectedFields:state.selectedFields, filters:state.filters,
+    aggs:state.aggs, groupByField:state.groupByField };
+}
+
+function generateReport() {
+  if (!state.primaryModule || !state.selectedFields.length) return;
+  state.currentPage = 1;
+  addCredit(1);
+  runQuery();
+}
+function loadNextPage() { state.currentPage++; addCredit(1); runQuery(); }
+
+function runQuery() {
+  const btn = document.getElementById('generateBtn');
+  btn.innerHTML = '<span class="spinner"></span> Running…';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.innerHTML = '▶ Generate Report';
+    btn.disabled = false;
+    renderResults();
+    state.lastRunConfig = JSON.stringify(getConfig());
+    state.dirty = false;
+    document.getElementById('staleBar').classList.remove('visible');
+    const b = document.getElementById('builder');
+    if (!b.classList.contains('collapsed')) toggleBuilder();
+    updateBuilderSummary();
+  }, 700);
+}
+
+// ── RESULTS ───────────────────────────────────────────────────────────
+function renderResults() {
+  const wrap = document.getElementById('resultsWrap');
+  const footer = document.getElementById('resultsFooter');
+  const pageTag = document.getElementById('pageTag');
+  const meta = document.getElementById('resultsMeta');
+  const footerInfo = document.getElementById('footerInfo');
+
+  const primaryFields = MODULES[state.primaryModule].fields;
+  let rows = MODULES[state.primaryModule].mockRows();
+
+  // apply filters (simple simulation)
+  state.filters.forEach(flt => {
+    if (!flt.field || !flt.value) return;
+    const [,fApi] = flt.field.split('::');
+    const idx = primaryFields.findIndex(f=>f.api===fApi);
+    if (idx<0) return;
+    rows = rows.filter(r => {
+      const v = String(r[idx]||'').toLowerCase();
+      const fv = flt.value.toLowerCase();
+      switch(flt.op) {
+        case '=': return v===fv;
+        case '!=': return v!==fv;
+        case 'contains': return v.includes(fv);
+        default: return true;
+      }
+    });
+  });
+
+  const pageSize = 5;
+  const pageRows = rows.slice(0, pageSize);
+  const hasMore = rows.length > pageSize;
+
+  const cols = state.selectedFields;
+  const aggCols = state.aggs.map(a => ({
+    name: a.alias || `${a.fn}(${a.field.split('::')[1]})`, fn:a.fn, field:a.field, isAgg:true
+  }));
+  const headers = cols.map(f=>f.name).concat(aggCols.map(a=>a.name));
+  if (!headers.length) return;
+
+  const numColIdx = new Set();
+  cols.forEach((f,i) => { if(f.type==='Number') numColIdx.add(i); });
+  aggCols.forEach((_,i) => numColIdx.add(cols.length+i));
+
+  const dataRows = pageRows.map(r => {
+    const cells = cols.map(f => {
+      const idx = primaryFields.findIndex(pf=>pf.api===f.api);
+      const val = idx>=0 ? r[idx] : '—';
+      return val!=null ? val : '—';
+    });
+    aggCols.forEach(a => {
+      const [,fApi] = a.field.split('::');
+      const idx = primaryFields.findIndex(pf=>pf.api===fApi);
+      if (idx<0) { cells.push('—'); return; }
+      const nums = rows.map(row=>parseFloat(row[idx])||0);
+      let val;
+      switch(a.fn) {
+        case 'SUM': val=nums.reduce((s,x)=>s+x,0); break;
+        case 'AVG': val=(nums.reduce((s,x)=>s+x,0)/nums.length).toFixed(0); break;
+        case 'COUNT': val=nums.length; break;
+        case 'MIN': val=Math.min(...nums); break;
+        case 'MAX': val=Math.max(...nums); break;
+        default: val='—';
+      }
+      cells.push(typeof val==='number' ? val.toLocaleString() : val);
+    });
+    return cells;
+  });
+
+  wrap.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'results-table';
+  table.addEventListener('copy', e=>e.preventDefault());
+  table.addEventListener('contextmenu', e=>e.preventDefault());
+  table.addEventListener('selectstart', e=>e.preventDefault());
+
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  headers.forEach(h => {
+    const th = document.createElement('th');
+    th.innerHTML = `${h} <span style="color:var(--text3)">↕</span>`;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  dataRows.forEach(rowData => {
+    const tr = document.createElement('tr');
+    rowData.forEach((cell,i) => {
+      const td = document.createElement('td');
+      td.textContent = cell??'—';
+      if (numColIdx.has(i)) td.classList.add('num');
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  pageTag.style.display = '';
+  pageTag.textContent = `Page ${state.currentPage} · ${pageRows.length} rows`;
+  meta.style.display = '';
+  meta.textContent = `${headers.length} columns`;
+  footerInfo.textContent = `Page ${state.currentPage}`;
+  document.getElementById('nextPageBtn').style.display = hasMore ? '' : 'none';
+  footer.style.display = '';
+  document.getElementById('resultsEmpty').style.display = 'none';
+}
+
+// ── BUILDER TOGGLE ────────────────────────────────────────────────────
+function toggleBuilder() {
+  const b = document.getElementById('builder');
+  const btn = document.getElementById('builderToggleBtn');
+  b.classList.toggle('collapsed');
+  btn.textContent = b.classList.contains('collapsed') ? '▼ Expand' : '▲ Collapse';
+  updateBuilderSummary();
+}
+function updateBuilderSummary() {
+  const s = document.getElementById('builderSummary');
+  s.textContent = state.primaryModule
+    ? `[${state.primaryModule}]  Fields: ${state.selectedFields.length}  Filters: ${state.filters.length}`
+    : '';
+}
+
+// ── FAV FILTERS ───────────────────────────────────────────────────────
+function openSaveFilterModal() {
+  if (!state.primaryModule) { alert('Select a module first.'); return; }
+  document.getElementById('filterNameInput').value = '';
+  document.getElementById('modalOverlay').classList.add('open');
+  setTimeout(()=>document.getElementById('filterNameInput').focus(), 50);
+}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+function saveFilter() {
+  const name = document.getElementById('filterNameInput').value.trim();
+  if (!name) return;
+  addCredit(1); // preset save credit
+  const fav = {
+    id: Date.now(), name,
+    config: getConfig()
+  };
+  state.favFilters.push(fav);
+  localStorage.setItem('crm_fav_filters', JSON.stringify(state.favFilters));
+  closeModal();
+  renderSidebar();
+}
+
+function deleteFavFilter(id, e) {
+  e.stopPropagation();
+  state.favFilters = state.favFilters.filter(f=>f.id!==id);
+  localStorage.setItem('crm_fav_filters', JSON.stringify(state.favFilters));
+  renderSidebar();
+}
+
+function loadFavFilter(id) {
+  const fav = state.favFilters.find(f=>f.id===id);
+  if (!fav) return;
+  addCredit(1); // load preset credit
+  applyConfig(fav.config);
+  renderSidebar(id, null);
+}
+
+function loadSharedReport(id) {
+  const sr = SHARED_REPORTS.find(r=>r.id===id);
+  if (!sr) return;
+  addCredit(1);
+  // build a config from the shared report definition
+  const mod = sr.module;
+  const fields = MODULES[mod].fields.filter(f => sr.fields.includes(f.api)).map(f=>({...f,module:mod}));
+  const filterIdStart = 100;
+  const filters = sr.filters.map((f,i) => ({id:filterIdStart+i, field:f.field, op:f.op, value:f.value}));
+  applyConfig({ primaryModule:mod, joinModule:'', selectedFields:fields, filters, aggs:[], groupByField:'' });
+  renderSidebar(null, id);
+}
+
+function applyConfig(c) {
+  state.primaryModule = c.primaryModule || '';
+  state.joinModule = c.joinModule || '';
+  state.selectedFields = c.selectedFields || [];
+  state.filters = c.filters || [];
+  state.aggs = c.aggs || [];
+  state.groupByField = c.groupByField || '';
+  filterIdSeq = Math.max(0, ...state.filters.map(f=>f.id), 0);
+  aggIdSeq = Math.max(0, ...state.aggs.map(a=>a.id), 0);
+
+  document.getElementById('primaryModule').value = state.primaryModule;
+  document.getElementById('joinModule').value = state.joinModule;
+  if (state.joinModule) {
+    document.getElementById('joinWrap').style.display='';
+    document.getElementById('addJoinBtn').style.display='none';
+  } else {
+    document.getElementById('joinWrap').style.display='none';
+    document.getElementById('addJoinBtn').style.display='';
+  }
+  renderFields();
+  renderFilters();
+  renderAggs();
+  updateGenerateBtn();
+  const b = document.getElementById('builder');
+  if (b.classList.contains('collapsed')) toggleBuilder();
+}
+
+function renderSidebar(activeFavId, activeSharedId) {
+  // Fav filters
+  const favList = document.getElementById('favFilterList');
+  const favEmpty = document.getElementById('favEmpty');
+  const existing = favList.querySelectorAll('.sidebar-item');
+  existing.forEach(el=>el.remove());
+
+  if (!state.favFilters.length) {
+    favEmpty.style.display='';
+  } else {
+    favEmpty.style.display='none';
+    state.favFilters.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'sidebar-item' + (f.id===activeFavId ? ' active' : '');
+      div.innerHTML = `<span class="sidebar-dot dot-filter"></span><span class="sidebar-item-label">${f.name}</span><button class="sidebar-item-del" onclick="deleteFavFilter(${f.id}, event)" title="Delete">×</button>`;
+      div.onclick = (e) => { if(e.target.tagName!=='BUTTON') loadFavFilter(f.id); };
+      favList.appendChild(div);
+    });
+  }
+
+  // Shared reports
+  const srList = document.getElementById('sharedReportList');
+  srList.innerHTML = '';
+  SHARED_REPORTS.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'sidebar-item shared' + (r.id===activeSharedId ? ' active' : '');
+    div.innerHTML = `<span class="sidebar-dot dot-shared"></span><span class="sidebar-item-label">${r.name}</span>`;
+    div.onclick = () => loadSharedReport(r.id);
+    srList.appendChild(div);
+  });
+}
+
+// ── KEYBOARD ──────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key==='Escape') closeModal();
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter' && !document.getElementById('generateBtn').disabled)
+    generateReport();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────
+renderSidebar();
+</script>
+</body>
+</html>

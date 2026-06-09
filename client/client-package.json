@@ -1,0 +1,6 @@
+{
+  "name": "report-builder-poc-client",
+  "version": "1.0.0",
+  "description": "CRM Report Builder POC",
+  "stack_version": 2
+}

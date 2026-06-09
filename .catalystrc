@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "55301000000114028",
+      "name": "report-builder-poc",
+      "domain": {
+        "id": "10126626451",
+        "name": "report-builder-poc-909156254.development"
+      },
+      "timezone": "Asia/Kolkata",
+      "env": [
+        {
+          "idx": 1,
+          "id": "909156254",
+          "name": "Development",
+          "type": 3
+        }
+      ]
+    }
+  ]
+}
