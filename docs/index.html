@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Report Builder</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f3f4f6;--white:#fff;--border:#e5e7eb;--border2:#d1d5db;
+  --text:#111827;--text2:#4b5563;--text3:#9ca3af;
+  --accent:#2563eb;--accent-light:#eff6ff;--accent-border:#bfdbfe;
+  --green:#16a34a;--green-light:#f0fdf4;
+  --yellow:#d97706;--yellow-light:#fffbeb;
+  --red:#dc2626;--red-light:#fef2f2;
+  --purple:#7c3aed;--purple-light:#f5f3ff;--purple-border:#ddd6fe;
+  --orange:#ea580c;--orange-light:#fff7ed;
+  --font:'Geist',system-ui,sans-serif;--mono:'Geist Mono',monospace;
+  --hh:52px;--sw:252px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);font-size:13.5px;color:var(--text);background:var(--bg);height:100vh;overflow:hidden}
+
+/* HEADER */
+.hdr{height:var(--hh);background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:fixed;top:0;left:0;right:0;z-index:100}
+.hdr-left{display:flex;align-items:center;gap:12px}
+.hdr-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;color:var(--text)}
+.hdr-title svg{color:var(--accent)}
+.step-pills{display:flex;gap:4px}
+.step-pill{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);color:var(--text3);font-family:var(--mono);cursor:default;transition:all .15s}
+.step-pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.step-pill.done{background:var(--green-light);color:var(--green);border-color:#bbf7d0;cursor:pointer}
+.credit-pill{display:flex;align-items:center;gap:5px;background:var(--yellow-light);border:1px solid #fde68a;border-radius:20px;padding:3px 10px;font-size:11.5px;color:var(--yellow);font-family:var(--mono)}
+
+/* PAGES */
+.page{display:none;padding-top:var(--hh);height:100vh}
+.page.active{display:block}
+
+/* ═══ PAGE 1 ═══ */
+.p1-body{display:flex;height:calc(100vh - var(--hh));overflow:hidden}
+
+/* p1 sidebar */
+.p1-sidebar{width:280px;background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.p1-sidebar-scroll{overflow-y:auto;flex:1}
+.sb-group{border-bottom:1px solid var(--border)}
+.sb-group-label{padding:10px 14px 6px;font-size:10.5px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;justify-content:space-between}
+.sb-empty{padding:4px 14px 10px;font-size:12px;color:var(--text3);font-style:italic}
+.sb-item{display:flex;align-items:center;gap:8px;padding:7px 14px;font-size:12.5px;color:var(--text2);cursor:pointer;border-left:2px solid transparent;transition:all .12s}
+.sb-item:hover{background:var(--bg);color:var(--text)}
+.sb-item.mine{border-left-color:transparent}
+.sb-item.mine:hover,.sb-item.mine.active{background:var(--accent-light);color:var(--accent);border-left-color:var(--accent)}
+.sb-item.shared-to-me{color:var(--purple)}
+.sb-item.shared-to-me:hover,.sb-item.shared-to-me.active{background:var(--purple-light);border-left-color:var(--purple);color:var(--purple)}
+.sb-item.shared-by-me{color:var(--orange)}
+.sb-item.shared-by-me:hover,.sb-item.shared-by-me.active{background:var(--orange-light);border-left-color:var(--orange);color:var(--orange)}
+.sb-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.dot-mine{background:var(--accent)}
+.dot-shared-to{background:var(--purple)}
+.dot-shared-by{background:var(--orange)}
+.sb-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;line-height:1;display:none;padding:0 2px}
+.sb-item:hover .sb-del{display:block}
+.sb-del:hover{color:var(--red)}
+.sb-who{font-size:10px;color:var(--text3);font-family:var(--mono);white-space:nowrap}
+
+/* p1 main */
+.p1-main{flex:1;display:flex;align-items:center;justify-content:center}
+.p1-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:32px 36px;width:500px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.p1-card h2{font-size:16px;font-weight:600;margin-bottom:5px}
+.p1-card .sub{font-size:12.5px;color:var(--text3);margin-bottom:26px}
+.form-row{display:flex;flex-direction:column;gap:5px;margin-bottom:16px}
+.form-row label{font-size:12px;font-weight:500;color:var(--text2)}
+.form-row select{width:100%}
+.join-preview{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--green-light);border:1px solid #bbf7d0;border-radius:6px;font-size:12px;color:var(--green);margin-bottom:16px}
+.p1-actions{display:flex;justify-content:flex-end;margin-top:22px}
+
+/* FORM ELEMENTS */
+select,input[type=text]{background:var(--white);border:1px solid var(--border2);color:var(--text);font-family:var(--font);font-size:13px;padding:7px 10px;border-radius:6px;outline:none;transition:border-color .15s,box-shadow .15s}
+select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239ca3af'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;padding-right:26px;cursor:pointer}
+select:focus,input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;border:none;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-primary:disabled{background:var(--border);color:var(--text3);cursor:not-allowed}
+.btn-outline{background:var(--white);color:var(--text2);border:1px solid var(--border2)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-ghost{background:none;color:var(--accent);border:1px dashed var(--accent-border);padding:5px 10px;font-size:12px}
+.btn-ghost:hover{background:var(--accent-light)}
+.btn-purple{background:var(--purple);color:#fff}
+.btn-purple:hover{background:#6d28d9}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-remove{background:none;border:none;color:var(--text3);cursor:pointer;font-size:17px;line-height:1;padding:0 3px}
+.btn-remove:hover{color:var(--red)}
+
+/* ═══ PAGE 2 ═══ */
+.p2-body{display:flex;height:calc(100vh - var(--hh));overflow:hidden}
+
+/* p2 left sidebar */
+.p2-sidebar{width:var(--sw);background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.sb-mod-switch{padding:10px 12px;border-bottom:1px solid var(--border)}
+.sb-mod-switch label{font-size:10.5px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:5px}
+.sb-mod-switch select{width:100%;font-size:12.5px}
+.p2-sb-scroll{overflow-y:auto;flex:1}
+.p2-sb-section{border-bottom:1px solid var(--border)}
+.p2-sb-label{padding:9px 12px 5px;font-size:10.5px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;justify-content:space-between}
+.field-list{padding:4px 8px 8px;display:flex;flex-direction:column;gap:2px}
+.field-item{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;cursor:pointer;transition:background .1s;user-select:none}
+.field-item:hover{background:var(--bg)}
+.field-item.checked{background:var(--accent-light)}
+.field-item input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;flex-shrink:0;cursor:pointer}
+.field-item-name{flex:1;font-size:12.5px;color:var(--text)}
+.field-item-type{font-size:10px;color:var(--text3);font-family:var(--mono)}
+.field-item.checked .field-item-name{color:var(--accent);font-weight:500}
+.join-mark{color:var(--green);font-size:10px;font-weight:700}
+.gb-section{padding:8px 12px;border-bottom:1px solid var(--border)}
+.gb-section label{font-size:10.5px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:5px}
+.gb-section select{width:100%;font-size:12px}
+.agg-section{padding:8px 12px 12px;border-bottom:1px solid var(--border)}
+.agg-section label{font-size:10.5px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:5px}
+.agg-row{display:flex;gap:4px;margin-bottom:4px;align-items:center}
+.agg-row select{flex:1;font-size:11.5px;padding:4px 6px}
+
+/* p2 main */
+.p2-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.p2-topbar{background:var(--white);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:10px}
+.p2-topbar-left{display:flex;align-items:center;gap:8px;min-width:0}
+.report-title{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap}
+.pill{font-size:11px;border-radius:10px;padding:2px 8px;font-family:var(--mono);font-weight:400;white-space:nowrap}
+.pill-blue{background:var(--accent-light);color:var(--accent);border:1px solid var(--accent-border)}
+.pill-gray{background:var(--bg);color:var(--text3);border:1px solid var(--border)}
+.pill-green{background:var(--green-light);color:var(--green);border:1px solid #bbf7d0}
+.p2-topbar-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+
+/* filter panel */
+.filter-panel{background:var(--white);border-bottom:1px solid var(--border);padding:12px 16px;display:none;flex-shrink:0}
+.filter-panel.open{display:block}
+.filter-panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.filter-panel-hdr span{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+.filter-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.filter-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.filter-row select,.filter-row input{font-size:12px;padding:5px 8px}
+.filter-actions{display:flex;align-items:center;gap:8px}
+
+/* share panel */
+.share-panel{background:var(--purple-light);border:1px solid var(--purple-border);border-radius:8px;padding:14px;margin-top:10px;display:none}
+.share-panel.open{display:block}
+.share-panel-title{font-size:12px;font-weight:600;color:var(--purple);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.share-type-row{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.share-type-btn{font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid var(--purple-border);background:var(--white);color:var(--purple);cursor:pointer;font-family:var(--font);transition:all .1s}
+.share-type-btn.active{background:var(--purple);color:#fff;border-color:var(--purple)}
+.share-target-row{display:flex;gap:6px;align-items:center;margin-bottom:10px}
+.share-target-row select,.share-target-row input{font-size:12px;padding:5px 8px;flex:1}
+.share-actions{display:flex;gap:6px;justify-content:flex-end}
+.share-result{font-size:12px;color:var(--green);margin-top:6px;display:none}
+
+/* stale bar */
+.stale-bar{display:none;align-items:center;gap:8px;padding:6px 16px;background:var(--yellow-light);border-bottom:1px solid #fde68a;font-size:12px;color:var(--yellow);flex-shrink:0}
+.stale-bar.visible{display:flex}
+
+/* results */
+.results-wrap{flex:1;overflow:auto}
+.results-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text3)}
+.results-table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--white);user-select:none;-webkit-user-select:none}
+.results-table th{background:var(--bg);border-bottom:1px solid var(--border2);border-right:1px solid var(--border);padding:8px 14px;text-align:left;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2);position:sticky;top:0;white-space:nowrap;letter-spacing:.03em}
+.results-table td{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:7px 14px;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--text)}
+.results-table td.num{color:var(--green);text-align:right;font-weight:500}
+.results-table td.grouped-val{font-weight:600;color:var(--text);background:var(--bg)}
+.results-table td.grouped-blank{background:var(--bg);border-bottom:none}
+.results-table tr.group-divider td{border-top:2px solid var(--border2);background:var(--bg)}
+.results-table tfoot td{background:#f9fafb;font-weight:600;border-top:2px solid var(--border2);color:var(--text2);font-family:var(--mono);font-size:11.5px}
+.results-table tfoot td.num{color:var(--green);text-align:right}
+.group-badge{display:inline-flex;align-items:center;gap:4px;background:var(--accent-light);color:var(--accent);border:1px solid var(--accent-border);border-radius:10px;padding:1px 7px;font-size:10px;font-family:var(--mono);margin-left:6px}
+
+/* footer */
+.p2-footer{background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;flex-wrap:wrap;gap:8px}
+.pagination{display:flex;align-items:center;gap:6px}
+.page-btn{padding:4px 10px;font-size:12px;border:1px solid var(--border2);border-radius:4px;background:var(--white);cursor:pointer;font-family:var(--mono);color:var(--text2);transition:all .1s}
+.page-btn:hover{border-color:var(--accent);color:var(--accent)}
+.page-btn:disabled{opacity:.4;cursor:not-allowed}
+.page-info{font-size:12px;color:var(--text3);font-family:var(--mono)}
+.copy-notice{font-size:11px;color:var(--text3);font-style:italic}
+
+/* modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--white);border:1px solid var(--border2);border-radius:10px;padding:22px;width:380px;box-shadow:0 10px 40px rgba(0,0,0,.12)}
+.modal h3{font-size:14px;font-weight:600;margin-bottom:6px}
+.modal p{font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6}
+.modal label{font-size:12px;font-weight:500;color:var(--text2);display:block;margin-bottom:5px}
+.modal input{width:100%;margin-bottom:14px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .5s linear infinite;vertical-align:middle}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      CRM Report Builder
+    </div>
+    <div class="step-pills">
+      <div class="step-pill active" id="pill1">1 · Select Modules</div>
+      <div class="step-pill" id="pill2">2 · View Report</div>
+    </div>
+  </div>
+  <div class="hdr-right" style="display:flex;align-items:center;gap:8px">
+    <div class="credit-pill">Credits: <strong id="creditCount">0</strong></div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE 1 ═══════════════ -->
+<div class="page active" id="page1">
+  <div class="p1-body">
+
+    <!-- SIDEBAR -->
+    <div class="p1-sidebar">
+      <div class="p1-sidebar-scroll">
+
+        <!-- Saved Filters -->
+        <div class="sb-group">
+          <div class="sb-group-label">
+            Saved Filters
+            <span style="font-size:10px;background:var(--accent-light);color:var(--accent);border-radius:10px;padding:1px 6px;font-family:var(--mono)" id="savedCount"></span>
+          </div>
+          <div id="savedList"><div class="sb-empty">No saved filters.</div></div>
+        </div>
+
+        <!-- Shared with Me -->
+        <div class="sb-group">
+          <div class="sb-group-label" style="color:var(--purple)">
+            Shared with Me
+            <span style="font-size:10px;background:var(--purple-light);color:var(--purple);border-radius:10px;padding:1px 6px;font-family:var(--mono)" id="sharedToCount"></span>
+          </div>
+          <div id="sharedToList"><div class="sb-empty">Nothing shared with you yet.</div></div>
+        </div>
+
+        <!-- Shared by Me -->
+        <div class="sb-group">
+          <div class="sb-group-label" style="color:var(--orange)">
+            Shared by Me
+            <span style="font-size:10px;background:var(--orange-light);color:var(--orange);border-radius:10px;padding:1px 6px;font-family:var(--mono)" id="sharedByCount"></span>
+          </div>
+          <div id="sharedByList"><div class="sb-empty">You haven't shared any filters yet.</div></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- MAIN CARD -->
+    <div class="p1-main">
+      <div class="p1-card">
+        <h2>Build a New Report</h2>
+        <p class="sub">Select a primary module and optionally join a related module via its lookup field. Or pick a saved filter from the sidebar.</p>
+
+        <div class="form-row">
+          <label>Primary Module</label>
+          <select id="p1Primary" onchange="onP1ModuleChange()">
+            <option value="">Select a module…</option>
+            <option value="Leads">Leads</option>
+            <option value="Contacts">Contacts</option>
+            <option value="Accounts">Accounts</option>
+            <option value="Deals">Deals</option>
+          </select>
+        </div>
+
+        <div class="form-row" id="lookupRow" style="display:none">
+          <label>Join via Lookup <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+          <select id="p1Lookup" onchange="onP1LookupChange()">
+            <option value="">— No join —</option>
+          </select>
+        </div>
+
+        <div class="join-preview" id="joinPreview" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+          <span id="joinPreviewText"></span>
+        </div>
+
+        <div class="p1-actions">
+          <button class="btn btn-primary" id="p1Next" onclick="goToPage2()" disabled>Build Report →</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE 2 ═══════════════ -->
+<div class="page" id="page2">
+  <div class="p2-body">
+
+    <!-- LEFT SIDEBAR -->
+    <div class="p2-sidebar">
+      <div class="sb-mod-switch">
+        <label>Module</label>
+        <select id="sbModSwitch" onchange="onSbModSwitch()"></select>
+      </div>
+      <div class="p2-sb-scroll">
+        <div class="p2-sb-section">
+          <div class="p2-sb-label">Fields <span id="fieldSelCount" style="font-family:var(--mono);font-size:11px;color:var(--accent)"></span></div>
+          <div class="field-list" id="sbFieldList"></div>
+        </div>
+        <div class="gb-section">
+          <label>Group By</label>
+          <select id="gbField" onchange="markDirty()"><option value="">— None —</option></select>
+        </div>
+        <div class="agg-section">
+          <label>Aggregations</label>
+          <div id="aggRows"></div>
+          <button class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:4px;font-size:11.5px" onclick="addAgg()">+ Add Aggregation</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="p2-main">
+
+      <!-- TOP BAR -->
+      <div class="p2-topbar">
+        <div class="p2-topbar-left">
+          <span class="report-title" id="reportTitle"></span>
+          <span class="pill pill-gray" id="totalPill" style="display:none"></span>
+          <span class="pill pill-blue" id="pagePill" style="display:none"></span>
+        </div>
+        <div class="p2-topbar-right">
+          <button class="btn btn-outline btn-sm" onclick="goToPage1()">← Modules</button>
+          <button class="btn btn-outline btn-sm" id="filterBtn" onclick="toggleFilterPanel()">⊞ Filters <span id="filterBadge" style="display:none;background:var(--accent);color:#fff;border-radius:10px;padding:0 5px;font-size:10px;margin-left:2px"></span></button>
+          <button class="btn btn-primary btn-sm" id="runBtn" onclick="runReport()">▶ Run</button>
+        </div>
+      </div>
+
+      <!-- FILTER PANEL -->
+      <div class="filter-panel" id="filterPanel">
+        <div class="filter-panel-hdr">
+          <span>Filters</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="openSaveModal()" id="saveFilterBtn" style="display:none;border-color:#bbf7d0;color:var(--green)">☆ Save Filter</button>
+            <button class="btn btn-purple btn-sm" onclick="toggleSharePanel()" id="shareBtn" style="display:none">↗ Share Filter</button>
+            <button class="btn btn-outline btn-sm" onclick="toggleFilterPanel()">✕</button>
+          </div>
+        </div>
+        <div class="filter-rows" id="filterRows"></div>
+        <div class="filter-actions">
+          <button class="btn btn-ghost" style="font-size:12px" onclick="addFilter()">+ Add Filter</button>
+        </div>
+
+        <!-- SHARE PANEL -->
+        <div class="share-panel" id="sharePanel">
+          <div class="share-panel-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            Share Filter With
+          </div>
+          <div class="share-type-row">
+            <button class="share-type-btn active" onclick="setShareType('user',this)">User</button>
+            <button class="share-type-btn" onclick="setShareType('role',this)">Role</button>
+            <button class="share-type-btn" onclick="setShareType('profile',this)">Profile</button>
+            <button class="share-type-btn" onclick="setShareType('subordinates',this)">Subordinates</button>
+          </div>
+          <!-- share target inputs -->
+          <div class="share-target-row" id="shareTargetUser">
+            <select id="shareUserSel" style="flex:1;font-size:12px;padding:5px 8px">
+              <option value="">Select user…</option>
+              <option value="alice">Alice Smith — Sales</option>
+              <option value="bob">Bob Jones — IT</option>
+              <option value="carol">Carol Tanaka — HR</option>
+              <option value="david">David Patel — Finance</option>
+              <option value="eva">Eva Müller — Engineering</option>
+            </select>
+          </div>
+          <div class="share-target-row" id="shareTargetRole" style="display:none">
+            <select style="flex:1;font-size:12px;padding:5px 8px">
+              <option value="">Select role…</option>
+              <option>Sales Manager</option><option>CRM Admin</option>
+              <option>Consultant</option><option>Analyst</option>
+            </select>
+          </div>
+          <div class="share-target-row" id="shareTargetProfile" style="display:none">
+            <select style="flex:1;font-size:12px;padding:5px 8px">
+              <option value="">Select profile…</option>
+              <option>Administrator</option><option>Standard</option>
+              <option>Consultant (Restricted)</option><option>Read-Only</option>
+            </select>
+          </div>
+          <div class="share-target-row" id="shareTargetSub" style="display:none">
+            <select style="flex:1;font-size:12px;padding:5px 8px">
+              <option value="">Select manager…</option>
+              <option>Alice Smith (Team Lead)</option>
+              <option>Bob Jones (Team Lead)</option>
+            </select>
+            <span style="font-size:11px;color:var(--text3)">All subordinates will receive access</span>
+          </div>
+          <div class="share-actions">
+            <button class="btn btn-outline btn-sm" onclick="toggleSharePanel()">Cancel</button>
+            <button class="btn btn-purple btn-sm" onclick="doShare()">Share →</button>
+          </div>
+          <div class="share-result" id="shareResult">✓ Filter shared successfully.</div>
+        </div>
+
+      </div>
+
+      <!-- STALE BAR -->
+      <div class="stale-bar" id="staleBar">⚠ Config changed — click Run to refresh</div>
+
+      <!-- RESULTS -->
+      <div class="results-wrap" id="resultsWrap">
+        <div class="results-empty" id="resultsEmpty">
+          <div style="font-size:28px;opacity:.2">⬡</div>
+          <div style="font-size:13px">Click Run to fetch results.</div>
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="p2-footer" id="p2Footer" style="display:none">
+        <div class="pagination">
+          <button class="page-btn" id="prevBtn" onclick="changePage(-1)" disabled>← Prev</button>
+          <span class="page-info" id="pageInfo"></span>
+          <button class="page-btn" id="nextBtn" onclick="changePage(1)">Next →</button>
+        </div>
+        <div class="copy-notice">⚠ Copy, right-click and text selection disabled on this table</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SAVE MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Save Filter</h3>
+    <p>Saves the current filter, fields, grouping and aggregation config to your sidebar for quick reload.</p>
+    <label>Filter name</label>
+    <input type="text" id="filterNameInput" placeholder="e.g. Open Leads – Q2">
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveFilter()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MOCK DATA ─────────────────────────────────────────────────────────
+const MODULES = {
+  Leads:{label:'Leads',fields:[
+    {name:'First Name',api:'First_Name',type:'Text'},
+    {name:'Last Name',api:'Last_Name',type:'Text'},
+    {name:'Email',api:'Email',type:'Email'},
+    {name:'Phone',api:'Phone',type:'Phone'},
+    {name:'Lead Status',api:'Lead_Status',type:'PickList',values:['Open-Not Contacted','Working-Contacted','Closed-Converted','Closed-Not Converted']},
+    {name:'Annual Revenue',api:'Annual_Revenue',type:'Number'},
+    {name:'Lead Source',api:'Lead_Source',type:'PickList',values:['Web','Phone','Email','Other']},
+    {name:'Company',api:'Company',type:'Text'},
+    {name:'Account Name',api:'Account_Name',type:'Lookup',joinModule:'Accounts'},
+  ],mockData:()=>Array.from({length:120},(_,i)=>({
+    First_Name:['Alice','Bob','Carol','David','Eva','Frank','Grace','Han','Ivy','Jake'][i%10],
+    Last_Name:['Smith','Jones','Tanaka','Patel','Müller','Chen','Okafor','Rivera','Singh','Kim'][i%10],
+    Email:`${['alice','bob','carol','david','eva','frank','grace','han','ivy','jake'][i%10]}@${['acme','beta','gamma','delta','euro'][i%5]}.com`,
+    Phone:`555-${String(1000+i).padStart(4,'0')}`,
+    Lead_Status:['Open-Not Contacted','Working-Contacted','Closed-Converted','Closed-Not Converted'][i%4],
+    Annual_Revenue:50000+(i*8500),
+    Lead_Source:['Web','Phone','Email','Other'][i%4],
+    Company:['Acme Corp','Beta LLC','Gamma Inc','Delta Co','Euro GmbH'][i%5],
+    Account_Name:['Acme Corp','Beta LLC','Gamma Inc','Delta Co','Euro GmbH'][i%5],
+  }))},
+  Contacts:{label:'Contacts',fields:[
+    {name:'First Name',api:'First_Name',type:'Text'},
+    {name:'Last Name',api:'Last_Name',type:'Text'},
+    {name:'Email',api:'Email',type:'Email'},
+    {name:'Phone',api:'Phone',type:'Phone'},
+    {name:'Department',api:'Department',type:'PickList',values:['Sales','IT','HR','Finance','Engineering']},
+    {name:'Title',api:'Title',type:'Text'},
+    {name:'Account Name',api:'Account_Name',type:'Lookup',joinModule:'Accounts'},
+  ],mockData:()=>Array.from({length:80},(_,i)=>({
+    First_Name:['Alice','Bob','Carol','David','Eva','Frank','Grace','Han','Ivy','Jake'][i%10],
+    Last_Name:['Smith','Jones','Tanaka','Patel','Müller','Chen','Okafor','Rivera','Singh','Kim'][i%10],
+    Email:`contact${i+1}@example.com`,Phone:`555-${String(2000+i).padStart(4,'0')}`,
+    Department:['Sales','IT','HR','Finance','Engineering'][i%5],
+    Title:['Manager','Director','Analyst','VP','Lead'][i%5],
+    Account_Name:['Acme Corp','Beta LLC','Gamma Inc','Delta Co','Euro GmbH'][i%5],
+  }))},
+  Accounts:{label:'Accounts',fields:[
+    {name:'Account Name',api:'Account_Name',type:'Text'},
+    {name:'Industry',api:'Industry',type:'PickList',values:['Technology','Finance','Healthcare','Manufacturing','Other']},
+    {name:'Annual Revenue',api:'Annual_Revenue',type:'Number'},
+    {name:'Phone',api:'Phone',type:'Phone'},
+    {name:'Employees',api:'No_of_Employees',type:'Number'},
+    {name:'Owner',api:'Owner',type:'Text'},
+  ],mockData:()=>Array.from({length:40},(_,i)=>({
+    Account_Name:['Acme Corp','Beta LLC','Gamma Inc','Delta Co','Euro GmbH'][i%5],
+    Industry:['Technology','Finance','Healthcare','Manufacturing','Other'][i%5],
+    Annual_Revenue:500000+(i*120000),Phone:`555-${String(9000+i).padStart(4,'0')}`,
+    No_of_Employees:50+(i*30),Owner:['J. Connor','M. Lee','T. Sato','R. Patel','H. Müller'][i%5],
+  }))},
+  Deals:{label:'Deals',fields:[
+    {name:'Deal Name',api:'Deal_Name',type:'Text'},
+    {name:'Amount',api:'Amount',type:'Number'},
+    {name:'Stage',api:'Stage',type:'PickList',values:['Qualification','Proposal','Negotiation','Closed Won','Closed Lost']},
+    {name:'Close Date',api:'Close_Date',type:'Date'},
+    {name:'Probability',api:'Probability',type:'Number'},
+    {name:'Account Name',api:'Account_Name',type:'Lookup',joinModule:'Accounts'},
+    {name:'Contact Name',api:'Contact_Name',type:'Lookup',joinModule:'Contacts'},
+  ],mockData:()=>Array.from({length:90},(_,i)=>({
+    Deal_Name:`Deal #${i+1}`,Amount:20000+(i*15000),
+    Stage:['Qualification','Proposal','Negotiation','Closed Won','Closed Lost'][i%5],
+    Close_Date:`2026-0${(i%9)+1}-${String((i%28)+1).padStart(2,'0')}`,
+    Probability:[10,30,50,80,100][i%5],
+    Account_Name:['Acme Corp','Beta LLC','Gamma Inc','Delta Co','Euro GmbH'][i%5],
+    Contact_Name:['Alice Smith','Bob Jones','Carol Tanaka','David Patel','Eva Müller'][i%5],
+  }))},
+};
+
+const PAGE_SIZE = 50;
+
+// ── STATE ─────────────────────────────────────────────────────────────
+let S = {
+  primaryModule:'',joinModule:'',joinLookupField:'',
+  selectedFields:{},filters:[],aggs:[],groupByField:'',
+  currentPage:1,totalRows:0,allRows:[],lastRunConfig:null,
+  credits:0,sbActiveMod:'',
+  savedFilters: JSON.parse(localStorage.getItem('crm_saved3')||'[]'),
+  sharedWithMe: JSON.parse(localStorage.getItem('crm_shared_to3')||'[]'),
+  sharedByMe:   JSON.parse(localStorage.getItem('crm_shared_by3')||'[]'),
+};
+let fidSeq=0,aidSeq=0;
+let shareType='user';
+let activeSavedId=null;
+
+function saveLS(){
+  localStorage.setItem('crm_saved3',JSON.stringify(S.savedFilters));
+  localStorage.setItem('crm_shared_to3',JSON.stringify(S.sharedWithMe));
+  localStorage.setItem('crm_shared_by3',JSON.stringify(S.sharedByMe));
+}
+
+function addCredit(n){S.credits+=n;document.getElementById('creditCount').textContent=S.credits}
+
+// ── PAGE 1 ────────────────────────────────────────────────────────────
+function onP1ModuleChange(){
+  const mod=document.getElementById('p1Primary').value;
+  S.primaryModule=mod; S.joinModule=''; S.joinLookupField='';
+  const lr=document.getElementById('lookupRow');
+  const lsel=document.getElementById('p1Lookup');
+  document.getElementById('joinPreview').style.display='none';
+  if(!mod){lr.style.display='none';document.getElementById('p1Next').disabled=true;return}
+  const lf=MODULES[mod].fields.filter(f=>f.type==='Lookup');
+  lsel.innerHTML='<option value="">— No join —</option>';
+  lf.forEach(f=>{const o=document.createElement('option');o.value=f.api;o.textContent=`${f.name} → ${f.joinModule}`;lsel.appendChild(o)});
+  lr.style.display=lf.length?'':'none';
+  addCredit(2);
+  document.getElementById('p1Next').disabled=false;
+}
+
+function onP1LookupChange(){
+  const sel=document.getElementById('p1Lookup').value;
+  const mod=S.primaryModule;
+  if(!sel){S.joinModule='';S.joinLookupField='';document.getElementById('joinPreview').style.display='none';return}
+  const f=MODULES[mod].fields.find(x=>x.api===sel);
+  S.joinLookupField=sel; S.joinModule=f.joinModule;
+  document.getElementById('joinPreviewText').textContent=`${MODULES[mod].label} joined with ${MODULES[f.joinModule].label} via "${f.name}"`;
+  document.getElementById('joinPreview').style.display='';
+}
+
+function loadConfigToPage2(cfg){
+  S.primaryModule=cfg.primaryModule||'';
+  S.joinModule=cfg.joinModule||'';
+  S.joinLookupField=cfg.joinLookupField||'';
+  S.selectedFields=JSON.parse(JSON.stringify(cfg.selectedFields||{}));
+  S.filters=(cfg.filters||[]).map(f=>({...f}));
+  S.aggs=(cfg.aggs||[]).map(a=>({...a}));
+  S.groupByField=cfg.groupByField||'';
+  fidSeq=Math.max(0,...S.filters.map(f=>f.id),0);
+  aidSeq=Math.max(0,...S.aggs.map(a=>a.id),0);
+  document.getElementById('p1Primary').value=S.primaryModule;
+  S.currentPage=1; S.lastRunConfig=null;
+  initPage2();
+}
+
+function goToPage2(cfg){
+  if(!S.primaryModule)return;
+  if(!cfg){
+    // fresh: auto-select first 4 non-lookup from primary, 2 from join
+    S.selectedFields={};
+    const pf=MODULES[S.primaryModule].fields.filter(f=>f.type!=='Lookup');
+    S.selectedFields[S.primaryModule]=pf.slice(0,4).map(f=>f.api);
+    if(S.joinModule){
+      const jf=MODULES[S.joinModule].fields.filter(f=>f.type!=='Lookup');
+      S.selectedFields[S.joinModule]=jf.slice(0,2).map(f=>f.api);
+    }
+    S.filters=[];fidSeq=0;S.aggs=[];aidSeq=0;S.groupByField='';
+    S.currentPage=1;S.lastRunConfig=null;
+  }
+  initPage2();
+}
+
+function initPage2(){
+  document.getElementById('page1').classList.remove('active');
+  document.getElementById('page2').classList.add('active');
+  document.getElementById('pill1').className='step-pill done';
+  document.getElementById('pill2').className='step-pill active';
+
+  // module switcher
+  const sw=document.getElementById('sbModSwitch');
+  sw.innerHTML='';
+  const mods=[S.primaryModule];
+  if(S.joinModule)mods.push(S.joinModule);
+  mods.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=MODULES[m].label;sw.appendChild(o)});
+  S.sbActiveMod=S.primaryModule;
+
+  // report title
+  let t=MODULES[S.primaryModule].label;
+  if(S.joinModule)t+=` + ${MODULES[S.joinModule].label}`;
+  document.getElementById('reportTitle').textContent=t;
+
+  renderSbFields();renderGroupBy();renderAggs();renderFilters();
+  updateFilterBadge();
+  document.getElementById('staleBar').classList.remove('visible');
+  document.getElementById('totalPill').style.display='none';
+  document.getElementById('pagePill').style.display='none';
+  document.getElementById('p2Footer').style.display='none';
+  document.getElementById('resultsWrap').innerHTML='<div class="results-empty" id="resultsEmpty"><div style="font-size:28px;opacity:.2">⬡</div><div style="font-size:13px">Click Run to fetch results.</div></div>';
+  document.getElementById('sharePanel').classList.remove('open');
+  document.getElementById('filterPanel').classList.remove('open');
+  document.getElementById('saveFilterBtn').style.display='none';
+  document.getElementById('shareBtn').style.display='none';
+}
+
+function goToPage1(){
+  document.getElementById('page1').classList.add('active');
+  document.getElementById('page2').classList.remove('active');
+  document.getElementById('pill1').className='step-pill active';
+  document.getElementById('pill2').className='step-pill done';
+}
+
+// ── SIDEBAR FIELDS ────────────────────────────────────────────────────
+function onSbModSwitch(){
+  S.sbActiveMod=document.getElementById('sbModSwitch').value;
+  renderSbFields();
+}
+
+function renderSbFields(){
+  const mod=S.sbActiveMod;
+  const list=document.getElementById('sbFieldList');
+  list.innerHTML='';
+  if(!mod||!MODULES[mod])return;
+  MODULES[mod].fields.forEach(f=>{
+    if(f.type==='Lookup'&&f.api!==S.joinLookupField)return;
+    const sel=(S.selectedFields[mod]||[]).includes(f.api);
+    const item=document.createElement('div');
+    item.className='field-item'+(sel?' checked':'');
+    const isJoin=f.api===S.joinLookupField;
+    item.innerHTML=`<input type="checkbox" ${sel?'checked':''}>${isJoin?'<span class="join-mark">⇒</span>':''}<span class="field-item-name">${f.name}</span><span class="field-item-type">${f.type}</span>`;
+    const toggle=()=>{
+      if(!S.selectedFields[mod])S.selectedFields[mod]=[];
+      const idx=S.selectedFields[mod].indexOf(f.api);
+      if(idx>=0)S.selectedFields[mod].splice(idx,1);
+      else S.selectedFields[mod].push(f.api);
+      markDirty();renderSbFields();renderGroupBy();renderFilters();
+    };
+    item.querySelector('input').addEventListener('change',e=>{e.stopPropagation();toggle()});
+    item.addEventListener('click',e=>{if(e.target.tagName!=='INPUT')toggle()});
+    list.appendChild(item);
+  });
+  const total=Object.values(S.selectedFields).flat().length;
+  document.getElementById('fieldSelCount').textContent=total?`${total} selected`:'';
+}
+
+function getAllSelectedFields(){
+  const out=[];
+  [S.primaryModule,...(S.joinModule?[S.joinModule]:[])].forEach(mod=>{
+    (S.selectedFields[mod]||[]).forEach(api=>{
+      const f=MODULES[mod].fields.find(x=>x.api===api);
+      if(f)out.push({...f,module:mod,fromJoin:mod!==S.primaryModule});
+    });
+  });
+  return out;
+}
+
+// ── GROUP BY ──────────────────────────────────────────────────────────
+function renderGroupBy(){
+  const sel=document.getElementById('gbField');
+  const prev=S.groupByField;
+  sel.innerHTML='<option value="">— None —</option>';
+  getAllSelectedFields().filter(f=>f.type!=='Number'&&f.type!=='Lookup').forEach(f=>{
+    const o=document.createElement('option');
+    o.value=`${f.module}::${f.api}`;
+    o.textContent=f.fromJoin?`◆ ${f.name}`:f.name;
+    if(prev===`${f.module}::${f.api}`)o.selected=true;
+    sel.appendChild(o);
+  });
+  sel.onchange=()=>{S.groupByField=sel.value;markDirty()};
+}
+
+// ── AGGREGATIONS ──────────────────────────────────────────────────────
+function addAgg(){
+  const nf=getAllSelectedFields().filter(f=>f.type==='Number');
+  if(!nf.length){alert('Select at least one numeric field first.');return}
+  S.aggs.push({id:++aidSeq,fn:'SUM',field:`${nf[0].module}::${nf[0].api}`,alias:''});
+  markDirty();renderAggs();
+}
+function removeAgg(id){S.aggs=S.aggs.filter(a=>a.id!==id);markDirty();renderAggs()}
+function updateAgg(id,key,val){const a=S.aggs.find(x=>x.id===id);if(a){a[key]=val;markDirty()}}
+function renderAggs(){
+  const c=document.getElementById('aggRows');c.innerHTML='';
+  const nf=getAllSelectedFields().filter(f=>f.type==='Number');
+  const opts=nf.map(f=>`<option value="${f.module}::${f.api}">${f.fromJoin?'◆ ':''}${f.name}</option>`).join('');
+  S.aggs.forEach(a=>{
+    const row=document.createElement('div');row.className='agg-row';
+    row.innerHTML=`
+      <select style="flex:0 0 58px;font-size:11px;padding:3px 4px" onchange="updateAgg(${a.id},'fn',this.value)">
+        ${['SUM','AVG','COUNT','MIN','MAX'].map(fn=>`<option ${a.fn===fn?'selected':''}>${fn}</option>`).join('')}
+      </select>
+      <select onchange="updateAgg(${a.id},'field',this.value)">${opts}</select>
+      <input type="text" value="${a.alias}" placeholder="alias" style="width:60px;font-size:11.5px;padding:3px 5px" onchange="updateAgg(${a.id},'alias',this.value)">
+      <button class="btn-remove" onclick="removeAgg(${a.id})">×</button>`;
+    c.appendChild(row);
+  });
+}
+
+// ── FILTERS ───────────────────────────────────────────────────────────
+function addFilter(){
+  S.filters.push({id:++fidSeq,field:'',op:'=',value:''});
+  markDirty();renderFilters();updateFilterBadge();
+}
+function removeFilter(id){
+  S.filters=S.filters.filter(f=>f.id!==id);
+  markDirty();renderFilters();updateFilterBadge();
+}
+function setFilterVal(id,key,val){
+  const f=S.filters.find(x=>x.id===id);if(f){f[key]=val;markDirty();if(key==='field')renderFilters()}
+}
+function getAllFilterableFields(){return getAllSelectedFields().filter(f=>f.type!=='Lookup')}
+function renderFilters(){
+  const c=document.getElementById('filterRows');c.innerHTML='';
+  S.filters.forEach(f=>{
+    const fields=getAllFilterableFields();
+    const fopts=fields.map(x=>`<option value="${x.module}::${x.api}" ${f.field===x.module+'::'+x.api?'selected':''}>${x.fromJoin?'◆ ':''}${x.name}</option>`).join('');
+    const selF=fields.find(x=>x.module+'::'+x.api===f.field);
+    let valIn=`<input type="text" value="${f.value}" style="width:120px" placeholder="value" onchange="setFilterVal(${f.id},'value',this.value)">`;
+    if(selF?.values)valIn=`<select onchange="setFilterVal(${f.id},'value',this.value)"><option value="">—</option>${selF.values.map(v=>`<option ${f.value===v?'selected':''}>${v}</option>`).join('')}</select>`;
+    const row=document.createElement('div');row.className='filter-row';
+    row.innerHTML=`<select onchange="setFilterVal(${f.id},'field',this.value)"><option value="">Field…</option>${fopts}</select><select onchange="setFilterVal(${f.id},'op',this.value)">${['=','!=','>','<','>=','<=','contains'].map(o=>`<option ${f.op===o?'selected':''}>${o}</option>`).join('')}</select>${valIn}<button class="btn-remove" onclick="removeFilter(${f.id})">×</button>`;
+    c.appendChild(row);
+  });
+  const hasFilters=S.filters.length>0;
+  document.getElementById('saveFilterBtn').style.display=hasFilters?'':'none';
+  document.getElementById('shareBtn').style.display=hasFilters?'':'none';
+}
+function updateFilterBadge(){
+  const n=S.filters.filter(f=>f.field&&f.value).length;
+  const b=document.getElementById('filterBadge');
+  if(n){b.textContent=n;b.style.display=''}else b.style.display='none';
+}
+function toggleFilterPanel(){
+  document.getElementById('filterPanel').classList.toggle('open');
+}
+
+// ── SHARE ─────────────────────────────────────────────────────────────
+function toggleSharePanel(){
+  document.getElementById('sharePanel').classList.toggle('open');
+  document.getElementById('shareResult').style.display='none';
+}
+function setShareType(type,btn){
+  shareType=type;
+  document.querySelectorAll('.share-type-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['User','Role','Profile','Sub'].forEach(t=>{
+    const el=document.getElementById(`shareTarget${t}`);
+    if(el)el.style.display='none';
+  });
+  const map={user:'User',role:'Role',profile:'Profile',subordinates:'Sub'};
+  const el=document.getElementById(`shareTarget${map[type]}`);
+  if(el)el.style.display='';
+}
+function doShare(){
+  // get name of what was shared
+  const filterName = S.savedFilters.find(f=>f.id===activeSavedId)?.name || 'Unnamed Filter';
+  const shareWith = (() => {
+    switch(shareType){
+      case 'user': return document.getElementById('shareUserSel').options[document.getElementById('shareUserSel').selectedIndex]?.text||'';
+      case 'role': return 'Role: '+(document.querySelector('#shareTargetRole select')?.value||'');
+      case 'profile': return 'Profile: '+(document.querySelector('#shareTargetProfile select')?.value||'');
+      case 'subordinates': return 'Subordinates of '+(document.querySelector('#shareTargetSub select')?.value||'');
+    }
+  })();
+
+  const cfg=getConfig();
+  // Add to sharedByMe
+  const sharedEntry={
+    id:Date.now(),name:filterName||'Shared Filter',
+    sharedWith:shareWith,shareType,config:cfg
+  };
+  S.sharedByMe.push(sharedEntry);
+
+  // Simulate: also add to sharedWithMe (in real app this goes to recipient)
+  S.sharedWithMe.push({id:Date.now()+1,name:filterName,sharedBy:'You (demo)',config:cfg});
+  saveLS();
+  renderP1Sidebar();
+
+  document.getElementById('shareResult').style.display='';
+  setTimeout(()=>{
+    document.getElementById('sharePanel').classList.remove('open');
+    document.getElementById('shareResult').style.display='none';
+  },1500);
+}
+
+// ── SAVE FILTER ───────────────────────────────────────────────────────
+function openSaveModal(){
+  document.getElementById('filterNameInput').value='';
+  document.getElementById('modalOverlay').classList.add('open');
+  setTimeout(()=>document.getElementById('filterNameInput').focus(),50);
+}
+function closeModal(){document.getElementById('modalOverlay').classList.remove('open')}
+function saveFilter(){
+  const name=document.getElementById('filterNameInput').value.trim();
+  if(!name)return;
+  addCredit(1);
+  const entry={id:Date.now(),name,config:getConfig()};
+  S.savedFilters.push(entry);activeSavedId=entry.id;
+  saveLS();renderP1Sidebar();closeModal();
+}
+function deleteSaved(id,e){
+  e.stopPropagation();
+  S.savedFilters=S.savedFilters.filter(f=>f.id!==id);
+  saveLS();renderP1Sidebar();
+}
+
+// ── PAGE 1 SIDEBAR ────────────────────────────────────────────────────
+function renderP1Sidebar(){
+  renderSbSection('savedList',S.savedFilters,'mine','No saved filters.',
+    (f)=>loadFilterFromP1(f.config,f.id),
+    (f,e)=>deleteSaved(f.id,e),
+    f=>`<span class="sb-dot dot-mine"></span><span class="sb-label">${f.name}</span>`,
+    true
+  );
+  renderSbSection('sharedToList',S.sharedWithMe,'shared-to-me','Nothing shared with you yet.',
+    (f)=>loadFilterFromP1(f.config,null),
+    null,
+    f=>`<span class="sb-dot dot-shared-to"></span><span class="sb-label">${f.name}</span><span class="sb-who">from ${f.sharedBy}</span>`,
+    false
+  );
+  renderSbSection('sharedByList',S.sharedByMe,'shared-by-me',"You haven't shared any filters yet.",
+    (f)=>loadFilterFromP1(f.config,f.id),
+    (f,e)=>{S.sharedByMe=S.sharedByMe.filter(x=>x.id!==f.id);saveLS();renderP1Sidebar();e.stopPropagation()},
+    f=>`<span class="sb-dot dot-shared-by"></span><span class="sb-label">${f.name}</span><span class="sb-who">→ ${f.sharedWith||''}</span>`,
+    true
+  );
+  document.getElementById('savedCount').textContent=S.savedFilters.length||'';
+  document.getElementById('sharedToCount').textContent=S.sharedWithMe.length||'';
+  document.getElementById('sharedByCount').textContent=S.sharedByMe.length||'';
+}
+
+function renderSbSection(containerId,list,cls,emptyMsg,onClick,onDel,renderInner,showDel){
+  const c=document.getElementById(containerId);
+  c.innerHTML='';
+  if(!list.length){c.innerHTML=`<div class="sb-empty">${emptyMsg}</div>`;return}
+  list.forEach(f=>{
+    const div=document.createElement('div');
+    div.className=`sb-item ${cls}`;
+    div.innerHTML=renderInner(f)+(showDel?`<button class="sb-del">×</button>`:'');
+    div.onclick=(e)=>{if(e.target.tagName!=='BUTTON')onClick(f)};
+    if(showDel&&onDel){
+      const delBtn=div.querySelector('.sb-del');
+      if(delBtn)delBtn.onclick=(e)=>onDel(f,e);
+    }
+    c.appendChild(div);
+  });
+}
+
+function loadFilterFromP1(cfg, savedId){
+  activeSavedId=savedId;
+  loadConfigToPage2(cfg);
+}
+
+// ── RUN REPORT ────────────────────────────────────────────────────────
+function getConfig(){
+  return{
+    primaryModule:S.primaryModule,joinModule:S.joinModule,joinLookupField:S.joinLookupField,
+    selectedFields:JSON.parse(JSON.stringify(S.selectedFields)),
+    filters:S.filters.map(f=>({...f})),aggs:S.aggs.map(a=>({...a})),
+    groupByField:S.groupByField
+  };
+}
+function markDirty(){
+  if(S.lastRunConfig)document.getElementById('staleBar').classList.add('visible');
+}
+function runReport(){
+  addCredit(1);
+  const btn=document.getElementById('runBtn');
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;
+  setTimeout(()=>{
+    btn.innerHTML='▶ Run';btn.disabled=false;
+    computeAndRender();
+    S.lastRunConfig=JSON.stringify(getConfig());
+    document.getElementById('staleBar').classList.remove('visible');
+  },600);
+}
+
+function computeAndRender(){
+  let rows=MODULES[S.primaryModule].mockData();
+  // apply filters
+  S.filters.forEach(flt=>{
+    if(!flt.field||!flt.value)return;
+    const[,api]=flt.field.split('::');
+    rows=rows.filter(r=>{
+      const v=String(r[api]??'').toLowerCase();const fv=flt.value.toLowerCase();
+      switch(flt.op){
+        case'=':return v===fv;case'!=':return v!==fv;
+        case'>':return parseFloat(r[api])>parseFloat(flt.value);
+        case'<':return parseFloat(r[api])<parseFloat(flt.value);
+        case'>=':return parseFloat(r[api])>=parseFloat(flt.value);
+        case'<=':return parseFloat(r[api])<=parseFloat(flt.value);
+        case'contains':return v.includes(fv);
+        default:return true;
+      }
+    });
+  });
+
+  // GROUP BY — enterprise SQL style
+  if(S.groupByField){
+    const[,gbApi]=S.groupByField.split('::');
+    const groupMap={};const groupOrder=[];
+    rows.forEach(r=>{
+      const key=String(r[gbApi]??'—');
+      if(!groupMap[key]){groupMap[key]=[];groupOrder.push(key)}
+      groupMap[key].push(r);
+    });
+    // sort groups by count DESC
+    groupOrder.sort((a,b)=>groupMap[b].length-groupMap[a].length);
+    // flatten: each row gets _groupKey, _groupSize, _groupRowIndex
+    const flat=[];
+    groupOrder.forEach(key=>{
+      const grp=groupMap[key];
+      grp.forEach((r,ri)=>{
+        // compute agg values for first row of group
+        const aggVals={};
+        if(ri===0){
+          S.aggs.forEach(a=>{
+            const[,api]=a.field.split('::');
+            const nums=grp.map(x=>parseFloat(x[api])||0);
+            let val;
+            switch(a.fn){
+              case'SUM':val=nums.reduce((s,x)=>s+x,0);break;
+              case'AVG':val=nums.reduce((s,x)=>s+x,0)/nums.length;break;
+              case'COUNT':val=nums.length;break;
+              case'MIN':val=Math.min(...nums);break;
+              case'MAX':val=Math.max(...nums);break;
+            }
+            aggVals[a.alias||`${a.fn}_${api}`]=val;
+          });
+        }
+        flat.push({...r,...aggVals,_gKey:key,_gSize:grp.length,_gIdx:ri,_gFirst:ri===0,_gLast:ri===grp.length-1});
+      });
+    });
+    rows=flat;
+  }
+
+  S.allRows=rows;S.totalRows=rows.length;S.currentPage=1;
+  renderTable();
+}
+
+function changePage(dir){
+  const tp=Math.ceil(S.totalRows/PAGE_SIZE);
+  S.currentPage=Math.max(1,Math.min(S.currentPage+dir,tp));
+  renderTable();
+}
+
+function renderTable(){
+  const allF=getAllSelectedFields();
+  const aggCols=S.aggs.map(a=>({
+    name:a.alias||`${a.fn}(${a.field.split('::')[1]})`,
+    fn:a.fn,field:a.field
+  }));
+
+  // determine grouped col api
+  const gbApi=S.groupByField?S.groupByField.split('::')[1]:null;
+
+  // build display cols — exclude the join lookup if not selected, skip pure lookup columns
+  const cols=allF.filter(f=>f.type!=='Lookup'||(f.api===S.joinLookupField));
+  const headers=cols.map(f=>f.name).concat(aggCols.map(a=>a.name));
+  if(!headers.length)return;
+
+  const numIdx=new Set();
+  cols.forEach((f,i)=>{if(f.type==='Number')numIdx.add(i)});
+  aggCols.forEach((_,i)=>numIdx.add(cols.length+i));
+
+  // column totals (across ALL rows)
+  const colTotals=headers.map((_,ci)=>{
+    if(!numIdx.has(ci))return null;
+    return S.allRows.reduce((s,r)=>{
+      const f=ci<cols.length?cols[ci]:null;
+      const a=ci>=cols.length?aggCols[ci-cols.length]:null;
+      const api=f?f.api:(a?a.field.split('::')[1]:null);
+      if(!api)return s;
+      return s+(parseFloat(r[api])||0);
+    },0);
+  });
+
+  const tp=Math.max(1,Math.ceil(S.totalRows/PAGE_SIZE));
+  const start=(S.currentPage-1)*PAGE_SIZE;
+  const pageRows=S.allRows.slice(start,start+PAGE_SIZE);
+
+  const wrap=document.getElementById('resultsWrap');
+  wrap.innerHTML='';
+  const table=document.createElement('table');
+  table.className='results-table';
+  table.addEventListener('copy',e=>e.preventDefault());
+  table.addEventListener('contextmenu',e=>e.preventDefault());
+  table.addEventListener('selectstart',e=>e.preventDefault());
+
+  // thead
+  const thead=document.createElement('thead');
+  const htr=document.createElement('tr');
+  headers.forEach(h=>{
+    const th=document.createElement('th');
+    th.innerHTML=`${h} <span style="color:var(--text3)">↕</span>`;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);table.appendChild(thead);
+
+  // tbody
+  const tbody=document.createElement('tbody');
+  pageRows.forEach((row,ri)=>{
+    const isGrouped=gbApi&&row._gKey!==undefined;
+    const tr=document.createElement('tr');
+    if(isGrouped&&row._gFirst&&ri>0)tr.classList.add('group-divider');
+
+    cols.forEach((f,ci)=>{
+      const td=document.createElement('td');
+      const isGbCol=gbApi&&f.api===gbApi;
+
+      if(isGrouped&&isGbCol){
+        if(row._gFirst){
+          // show value + count badge
+          td.classList.add('grouped-val');
+          td.innerHTML=`${row._gKey}<span class="group-badge">${row._gSize}</span>`;
+          td.setAttribute('rowspan',Math.min(row._gSize,PAGE_SIZE-ri));
+          // hide subsequent cells for this col — mark them
+          row._skipGbCol=false;
+        } else {
+          // skip — already covered by rowspan
+          td.style.display='none';
+          tr.appendChild(td);return;
+        }
+      } else {
+        const val=row[f.api];
+        td.textContent=(val!==undefined&&val!==null)?
+          (typeof val==='number'?val.toLocaleString():val):'—';
+        if(numIdx.has(ci))td.classList.add('num');
+      }
+      tr.appendChild(td);
+    });
+
+    // agg cols — only show on first row of group
+    aggCols.forEach((a,ai)=>{
+      const td=document.createElement('td');
+      if(isGrouped&&!row._gFirst){td.style.display='none';}
+      else{
+        const[,api]=a.field.split('::');
+        const key=a.alias||`${a.fn}_${api}`;
+        const val=row[key];
+        if(val!==undefined){
+          td.textContent=typeof val==='number'?val.toLocaleString():val;
+          td.classList.add('num');
+          if(isGrouped&&row._gFirst)td.setAttribute('rowspan',Math.min(row._gSize,PAGE_SIZE-ri));
+        } else td.textContent='—';
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  // tfoot
+  if(numIdx.size>0){
+    const tfoot=document.createElement('tfoot');
+    const ftr=document.createElement('tr');
+    headers.forEach((_,ci)=>{
+      const td=document.createElement('td');
+      if(ci===0)td.textContent=`Total (${S.totalRows} records)`;
+      else if(colTotals[ci]!==null){td.textContent=colTotals[ci].toLocaleString();td.classList.add('num')}
+      ftr.appendChild(td);
+    });
+    tfoot.appendChild(ftr);table.appendChild(tfoot);
+  }
+
+  wrap.appendChild(table);
+
+  // pills & footer
+  document.getElementById('totalPill').style.display='';
+  document.getElementById('totalPill').textContent=`${S.totalRows} records`;
+  document.getElementById('pagePill').style.display='';
+  document.getElementById('pagePill').textContent=`Page ${S.currentPage}/${tp}`;
+  document.getElementById('pageInfo').textContent=`${start+1}–${Math.min(start+PAGE_SIZE,S.totalRows)} of ${S.totalRows} · Page ${S.currentPage}/${tp}`;
+  const footer=document.getElementById('p2Footer');footer.style.display='';
+  document.getElementById('prevBtn').disabled=S.currentPage===1;
+  document.getElementById('nextBtn').disabled=S.currentPage===tp;
+}
+
+// ── KEYBOARD ─────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeModal();document.getElementById('sharePanel').classList.remove('open')}
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter')runReport();
+});
+
+// ── INIT ─────────────────────────────────────────────────────────────
+renderP1Sidebar();
+</script>
+</body>
+</html>
