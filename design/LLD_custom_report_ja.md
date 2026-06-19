@@ -1,13 +1,5 @@
 # LLD-CUSTOMREPORT-001: Zoho CRM カスタムレポートウィジェット
 
-**作成日:** 2026-06-03
-**ステータス:** ドラフト
-**作成者:** Vivek
-**レビュアー:** —
-**プロジェクト:** CRM カスタムレポート
-**HLD 参照:** `/home/vivek/project/INTERNAL/custom_report/design/HLD_custom_report.md`
-**PRD 参照:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req_new_en.md`
-
 ---
 
 ## 1. スコープ

@@ -1,13 +1,5 @@
 # HLD-CUSTOMREPORT-001: Zoho CRM カスタムレポートウィジェット
 
-**作成日:** 2026-06-03
-**ステータス:** ドラフト
-**作成者:** Vivek
-**レビュアー:** —
-**プロジェクト:** CRM カスタムレポート
-**PRD 参照:** `/home/vivek/project/INTERNAL/custom_report/requirement/customreport_functionality_req_new_en.md`
-**ADR 参照:** —
-
 ---
 
 ## 0. 要件サマリー
