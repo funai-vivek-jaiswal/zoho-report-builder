@@ -18,7 +18,7 @@ Derived from PRD Section 0. Full detail in the PRD reference above.
 
 | Requirement | Approach |
 | :--- | :--- |
-| **Prohibition of screen copying** (excluding screenshots and browser PDF export) | CSS `user-select: none` globally in React. JavaScript intercepts `copy` (Ctrl+C) and `contextmenu` (right-click) events to block clipboard transfer. |
+| **Casual copy prevention** (right-click, Ctrl+C, and text selection are intercepted; DevTools and screenshots cannot be blocked) | CSS `user-select: none` globally in React. JavaScript intercepts `copy` (Ctrl+C) and `contextmenu` (right-click) events to block clipboard transfer. For high-sensitivity data, exclude fields from the `Report_Target_Fields` admin whitelist — that is the only effective access control. |
 | **Favorites save feature** (reuse of filters, field order, etc.) | Serialize selected source table, field list (ordered), filter conditions, and aggregation/grouping settings as a single JSON string stored in `Saved_Report_Settings.Config_JSON`. |
 | **Only the creator can reuse and edit** (others cannot edit or delete) | Identify user via Deluge `zoho.loginuser` at save time and set as record `Owner`. Configure `Saved_Report_Settings` custom tab with Zoho CRM Sharing Rules = **Private** to enforce system-level access control. |
 | **Admin-controlled master** (target tabs, fields, aggregation rules) | Admin-only master tabs (`Report_Target_Modules` / `Report_Target_Fields`). Widget loads this master on startup and maps only permitted objects, fields, and aggregation types to dropdowns. |
@@ -29,7 +29,7 @@ Derived from PRD Section 0. Full detail in the PRD reference above.
 | :--- | :--- |
 | **JOIN retrieval via lookup references** (related tab access via COQL) | Add `Is_Lookup` attribute to `Report_Target_Fields`. When selected, use COQL dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) to dynamically fetch parent record fields — no explicit JOIN ON clause required. |
 | **Sharing with users other than the creator** | Owner-explicit sharing: store share-target user/role in the preset and add `OR share_target = logged_in_user` to retrieval WHERE clause. Optional: issue a sharing URL parameter. |
-| **API credit consumption consideration** | Consolidate all data access to `zoho.crm.coql` (up to 2,000 records per call). Cache results in React State. Execute backend call only when the "Generate Report" button is explicitly pressed (on-demand execution — no auto-refresh). |
+| **API credit consumption consideration** | Consolidate all data access to `zoho.crm.coql`. Paginate results at 100 records per page (user-initiated). Cache current page in React State. Execute backend call only when the "Generate Report" button is explicitly pressed (on-demand execution — no auto-refresh). |
 
 ---
 
@@ -122,7 +122,7 @@ graph TD
 4. Widget calls `execute_custom_report` Deluge function via `ZOHO.CRM.FUNCTIONS.execute()`.
 5. Deluge validates that all requested modules and fields exist in `Report_Target_Modules` / `Report_Target_Fields`.
 6. For Lookup-type fields, Deluge builds COQL using dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) rather than an explicit JOIN ON clause.
-7. COQL is executed via `zoho.crm.coql`; results are paginated (max 2,000 records per request).
+7. COQL is executed via `zoho.crm.coql`; results are paginated at 100 records per page.
 8. Results are returned as a JSON array and **cached in React State**. Subsequent UI interactions (sort, scroll) operate on the cached data without additional backend calls.
 9. Widget renders results in a read-only table with copy prevention active.
 
@@ -142,7 +142,7 @@ graph TD
 |---|---|---|---|
 | Zoho CRM Widget SDK | Embed widget in CRM page, get current user context | Zoho Widget OAuth (automatic via SDK) | `ZOHO.CRM.CONFIG.getCurrentUser()` |
 | Zoho CRM Functions (Deluge) | Execute server-side logic | Invoked via `ZOHO.CRM.FUNCTIONS.execute()` within widget context | No additional auth token needed |
-| Zoho CRM COQL | Query CRM data; Lookup field access via dot notation | Deluge `zoho.crm.coql` (preferred; up to 2,000 records per call) | Subject to Zoho API credit limits |
+| Zoho CRM COQL | Query CRM data; Lookup field access via dot notation | Deluge `zoho.crm.coql` (preferred; `page_size` capped at 100 per request) | Subject to Zoho API credit limits |
 | Zoho CRM Custom Tabs | Persist admin config & user presets | CRM standard record read/write in Deluge | `Report_Target_Modules`, `Report_Target_Fields`, `Saved_Report_Settings` |
 
 ---
@@ -157,7 +157,7 @@ graph TD
 | Data in transit | All calls occur within Zoho platform over HTTPS; no data leaves Zoho infrastructure |
 | Data at rest | Stored in Zoho CRM Custom Tabs; subject to Zoho's platform encryption |
 | **Download prevention** | No export endpoint exposed. Frontend has no download button. `Blob` / `URL.createObjectURL` never called. Backend returns JSON only — no file stream. |
-| **Copy prevention** | `user-select: none` on result table. `contextmenu` and `copy` events are intercepted and cancelled in the widget JS. |
+| **Casual copy prevention** | `user-select: none` on result table. `contextmenu` and `copy` events are intercepted and cancelled in the widget JS. DevTools and screenshots cannot be prevented — exclude sensitive fields from the `Report_Target_Fields` whitelist for true access control. |
 | **Preset access (platform level)** | `Saved_Report_Settings` custom tab configured with Zoho CRM Sharing Rules = **Private**. Platform enforces that only the Owner can view or edit the record. Shared access granted explicitly by the Owner. |
 | PII fields | Report results may contain PII (names, emails) from CRM records — display only, never persisted to browser storage |
 
@@ -167,9 +167,9 @@ graph TD
 |---|---|
 | User queries a module not in the admin whitelist | Deluge validates every requested module API name against `Report_Target_Modules` before executing COQL. Query is rejected if any module is absent. |
 | User crafts a malicious COQL string via the frontend payload | Deluge builds the COQL programmatically from validated field/module names — no raw user-supplied COQL string is ever executed. |
-| User copies report data via browser clipboard (Ctrl+C) | `copy` event listener calls `event.preventDefault()`. `user-select: none` prevents drag-selection. Right-click context menu is suppressed. |
+| User copies report data via browser clipboard (Ctrl+C) | `copy` event listener calls `event.preventDefault()`. `user-select: none` prevents drag-selection. Right-click context menu is suppressed. Note: DevTools network tab and screenshots remain accessible — this is casual copy prevention, not full copy prohibition. |
 | Unauthorized user accesses another user's saved preset | `Saved_Report_Settings` tab is set to Sharing Rules = Private in Zoho CRM (platform-level enforcement). Deluge additionally filters by `Owner = current user` OR in shared access list as a defense-in-depth check. |
-| COQL credit exhaustion (DoS by heavy querying) | Pagination capped at 2,000 rows per call. Deluge enforces a maximum of 3 JOIN modules per query. Frontend disables the Run button during active execution. |
+| COQL credit exhaustion (DoS by heavy querying) | Pagination capped at 100 rows per page. Deluge enforces a maximum of 2 Lookup traversals per query (COQL official limit). Frontend disables the Run button during active execution. |
 | Shared report accessed by user outside the org | Zoho platform enforces org-level authentication. Share list stores Zoho User IDs; Deluge verifies current user ID is in the share list before returning results. |
 
 ---
@@ -178,7 +178,7 @@ graph TD
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Frontend | React 18+ (Vite), MUI v5 | Zoho Widget platform requirement; component-based UI for dynamic field selection |
+| Frontend | React 18+ (Vite), MUI v5 | Adopted for state management complexity of the dynamic field selection, live validation, and cache-invalidation flows — not a Zoho Widget platform requirement. Any JS framework (or vanilla JS) can embed a widget. |
 | Backend | Deluge (Zoho CRM Functions) | Only server-side execution environment available inside Zoho CRM PaaS |
 | Data Query | Zoho COQL | Native CRM query language; only supported structured query method for multi-module JOINs |
 | Data Storage | Zoho CRM Custom Tabs | No external DB available; custom tabs provide persistent structured storage within the platform |
@@ -191,7 +191,7 @@ graph TD
 - **No external backend**: The system is fully contained within the Zoho CRM platform. This avoids additional infrastructure costs and auth complexity but limits query performance control to COQL constraints.
 - **Admin-whitelist model**: Rather than allowing free-form COQL, all queryable modules and fields are pre-approved by an admin. This prevents data exposure and simplifies COQL injection defense.
 - **COQL dot notation for Lookup fields**: Related module fields are accessed via COQL dot notation (e.g., `SELECT Account_Name.Account_Name FROM Leads`) instead of explicit JOIN ON clauses. This is simpler to build dynamically and aligns with Zoho's recommended COQL pattern for Lookup traversal.
-- **`zoho.crm.coql` as sole query API**: All data retrieval uses `zoho.crm.coql` (max 2,000 records per call) instead of standard search APIs. This conserves API credits and eliminates N+1 fetch patterns.
+- **`zoho.crm.coql` as sole query API**: All data retrieval uses `zoho.crm.coql` with `page_size` capped at 100 per page, instead of standard search APIs. This conserves API credits and eliminates N+1 fetch patterns. (COQL's hard limit is 2,000 per call; we cap at 100 for credit conservation and response time.)
 - **React State caching + on-demand execution**: Fetched results are stored in React State. Backend is only called when the user explicitly clicks "Generate Report." UI interactions (sort, scroll) operate on cached data, eliminating redundant API calls.
 - **JSON preset storage**: Report conditions are stored as a serialized JSON blob in `Config_JSON`. This allows flexible schema evolution without custom tab field changes, at the cost of losing server-side filter/search on condition internals.
 - **Platform-level private sharing for presets**: `Saved_Report_Settings` is configured as Private in Zoho CRM Sharing Rules. This provides system-level access control independent of application logic, with Deluge performing an additional application-level check for shared access.
@@ -203,9 +203,9 @@ graph TD
 
 | Metric | Current Estimate | Breaks At |
 |---|---|---|
-| Concurrent widget users | ~20–50 | Zoho Functions concurrent execution limit (~100); not a near-term concern |
-| Records per report query | Up to 2,000 per page | COQL hard limit of 2,000 per request; multi-page fetch required for larger datasets |
-| JOIN modules per query | Up to 3 | Performance degrades significantly beyond 3-way JOIN in COQL on large modules |
+| Concurrent widget users | ~20–50 *(pending re-verification)* | Zoho Functions concurrent execution limit not yet confirmed for this org; treat as a risk until verified |
+| Records per report query | 100 per page | COQL hard limit is 2,000 per request; we cap at 100 per page for credit conservation and response time |
+| JOIN modules per query | Up to 2 | COQL official specification limits Lookup traversals to 2; behavior is undefined beyond this |
 | Saved presets per user | Unlimited (CRM tab records) | No functional limit; UI should paginate preset list above 50 presets |
 | Zoho API credit consumption | ~1–5 credits per COQL call | Zoho enforces a daily API call credit limit per org; heavy use may approach limits |
 
@@ -213,7 +213,7 @@ graph TD
 
 - **Index-backed lookups**: JOIN conditions in COQL must reference Lookup-type fields (which are indexed by Zoho). Joining on plain text fields (e.g., matching by name string) is not supported and will be blocked at the field whitelist level (`Data_Type` must be `Lookup` for join keys).
 - **Large module joins**: Modules with > 100,000 records (e.g., `Leads`) will exhibit slower join performance. Enforce at least one WHERE filter clause on an indexed field (e.g., date range, owner) before executing a cross-module join.
-- **Pagination over full scans**: Never fetch all records in a single query. Always apply `LIMIT 2000 OFFSET N` pagination. The UI must warn users if the total result set is paginated.
+- **Pagination over full scans**: Never fetch all records in a single query. Always apply `LIMIT 100 OFFSET N` pagination. The UI must warn users if the total result set is paginated.
 - **Credit budget**: Each COQL call consumes Zoho API credits. Multi-page fetches consume one credit per page. The system must display the page count to users and require explicit user action to fetch the next page (no auto-load-all).
 
 ---

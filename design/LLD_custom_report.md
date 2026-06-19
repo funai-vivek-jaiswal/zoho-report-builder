@@ -111,7 +111,7 @@ Stores user-created report presets including sharing metadata.
     { "field": "Account_Name.Account_Name", "is_lookup": true }
   ],
   "page": 1,
-  "page_size": 200
+  "page_size": 100
 }
 ```
 
@@ -293,7 +293,7 @@ User sorts table → operates on reportData state → no backend call
 {
   "config_json": "{ ... }",
   "page": 1,
-  "page_size": 200
+  "page_size": 100
 }
 ```
 
@@ -303,7 +303,7 @@ User sorts table → operates on reportData state → no backend call
   "status": "success",
   "data": [ { "Last_Name": "Smith", "Account_Name": "Acme Corp" } ],
   "page": 1,
-  "page_size": 200,
+  "page_size": 100,
   "has_more": true,
   "credits_used_estimate": 1
 }
@@ -316,10 +316,13 @@ User sorts table → operates on reportData state → no backend call
 | Code | When |
 |---|---|
 | `WHITELIST_VIOLATION` | A requested module or field is not in the admin whitelist |
-| `JOIN_LIMIT_EXCEEDED` | More than 3 JOIN modules requested |
+| `JOIN_LIMIT_EXCEEDED` | More than 2 Lookup traversals requested (COQL official limit) |
 | `NO_FILTER_ON_LARGE_MODULE` | Primary module exceeds threshold and no WHERE filter provided |
 | `COQL_ERROR` | Zoho CRM rejects the generated COQL |
-| `CREDIT_LIMIT_WARNING` | Estimated remaining daily credits fall below safe threshold |
+| `CREDIT_LIMIT_WARNING` | Estimated remaining daily credits fall below the configured threshold — execution is blocked |
+| `TOO_MANY_REQUESTS` | Zoho API returns HTTP 429 (rate limit exceeded); execution is stopped and the user is asked to retry after a cooldown |
+| `CREDIT_EXCEEDED` | Daily API credit quota is fully exhausted; no COQL call is made and the user is notified to contact the admin |
+| `TIMEOUT` | COQL execution exceeds the Deluge function timeout; partial result is discarded and the user is asked to add a more restrictive WHERE filter |
 
 ---
 
@@ -340,8 +343,8 @@ User sorts table → operates on reportData state → no backend call
        assert field.field EXISTS in Report_Target_Fields
          WHERE Target_Module = primary_module
 4. Count lookup traversals (unique lookup_part values in select_fields)
-   assert lookup_traversal_count <= 3   // MAX LOOKUP TRAVERSAL LIMIT
-5. assert page_size <= 200              // credit conservation
+   assert lookup_traversal_count <= 2   // COQL official max: 2 Lookup traversals per query
+5. assert page_size <= 100              // credit conservation
 ```
 
 ### 4.2 Lookup Field Access via COQL Dot Notation (FR-009)
@@ -355,7 +358,7 @@ Related module fields are accessed using **COQL dot notation** — not explicit 
 SELECT Last_Name, Account_Name.Account_Name, Account_Name.Phone
 FROM Leads
 WHERE Lead_Status = 'Open - Not Contacted'
-LIMIT 200 OFFSET 0
+LIMIT 100 OFFSET 0
 ```
 
 In this example, `Account_Name` is the Lookup field on `Leads`, and `Account_Name.Account_Name` / `Account_Name.Phone` access fields on the related `Accounts` record.
@@ -380,11 +383,11 @@ For each field in select_fields where Is_Join_Key = true:
 | Rule | Reason |
 |---|---|
 | Dot notation fields must have `Is_Join_Key = true` and `Data_Type = Lookup` | Only Lookup fields support dot notation. Plain text fields cannot traverse to related records. |
-| Maximum 3 Lookup traversals per query | Each additional dot notation traversal increases query scan cost. Beyond 3 traversals, performance degrades on large modules. |
+| Maximum 2 Lookup traversals per query | COQL official specification limits Lookup traversals to 2. Beyond this limit, Zoho may reject the query or return undefined results. |
 | At least one `WHERE` filter required when the primary module has > 50,000 records | Full-scan over large modules (Leads, Contacts) without a filter hits credit limits and degrades performance. Deluge checks module record count before executing. |
-| `LIMIT` fixed at `page_size` (max 200 per page); `OFFSET = (page - 1) * page_size` | COQL hard limit is 2,000 per request. We cap at 200 to conserve credits and keep response time < 5s. |
+| `LIMIT` fixed at `page_size` (max 100 per page); `OFFSET = (page - 1) * page_size` | COQL hard limit is 2,000 per request. We cap at 100 to conserve credits and keep response time < 5s. |
 | No `SELECT *` | Only explicitly whitelisted fields are included in SELECT, preventing accidental PII exposure from un-whitelisted fields. |
-| All COQL executed via `zoho.crm.coql` | Consolidates all data access to a single API method (up to 2,000 records per call). Avoids mixing standard search APIs which consume more credits per record. |
+| All COQL executed via `zoho.crm.coql` | Consolidates all data access to a single API method (COQL hard limit: 2,000 per call; we cap at 100 per page). Avoids mixing standard search APIs which consume more credits per record. |
 
 ### 4.3 Aggregate Queries
 
@@ -394,7 +397,7 @@ When `aggregations` is non-empty, the query uses GROUP BY:
 SELECT Account_Name.Account_Name, SUM(Annual_Revenue) AS Total_Revenue
 FROM Leads
 GROUP BY Account_Name.Account_Name
-LIMIT 200 OFFSET 0
+LIMIT 100 OFFSET 0
 ```
 
 Non-aggregate fields in `select_fields` must also appear in `group_by` (standard SQL rule — validated before query build).
@@ -407,10 +410,13 @@ Zoho CRM enforces a daily API credit quota per org. Each COQL call consumes 1 cr
 
 | Control | Implementation |
 |---|---|
-| `page_size` capped at 200 | Reduces credits needed vs. fetching 2,000 records at once |
+| `page_size` capped at 100 | Reduces credits needed vs. fetching 2,000 records at once |
 | Page fetch is user-initiated | No auto-pagination. User must click "Load Next Page". Prevents runaway credit consumption. |
 | Credit warning | Deluge estimates remaining daily credits using `zoho.crm.getOrgVariable` (if available) and includes `credits_used_estimate` in every response. Frontend shows a warning banner when credit budget drops below a configurable threshold. |
-| Query complexity cap | 3 JOINs + 1 WHERE minimum on large modules limits per-query credit weight. |
+| **Execution stop condition** | If estimated remaining credits < `CREDIT_STOP_THRESHOLD` (default: 50 credits), Deluge returns `CREDIT_EXCEEDED` immediately without executing the COQL query. The frontend displays a "Credit budget exhausted — contact admin" message. This threshold is configurable via an org variable so admins can adjust without code change. |
+| `TOO_MANY_REQUESTS` handling | If `zoho.crm.coql` returns a 429 error, Deluge returns `TOO_MANY_REQUESTS` to the frontend. The frontend shows a "Rate limit reached — please wait 30 seconds and retry" message. No retry loop in Deluge (avoids stacking credits). |
+| `TIMEOUT` handling | Deluge function timeout is typically 10–30s. If the COQL call does not return within the timeout budget, Deluge returns `TIMEOUT`. The frontend advises the user to add a more restrictive WHERE filter (e.g., date range on an indexed field). |
+| Query complexity cap | 2 Lookup traversals max + 1 WHERE minimum on large modules limits per-query credit weight. |
 | Admin visibility | `credits_used_estimate` is logged per execution for admin audit. |
 
 ---
@@ -429,15 +435,15 @@ sequenceDiagram
     participant COQL as Zoho COQL Engine
 
     U->>FE: Select modules, fields, filters then click Run
-    FE->>DF: execute_custom_report(config_json, page 1, page_size 200)
+    FE->>DF: execute_custom_report(config_json, page 1, page_size 100)
     DF->>RTM: Validate each requested module exists in whitelist
     RTM-->>DF: Validation OK or WHITELIST_VIOLATION
     DF->>RTF: Validate fields and check Is_Join_Key for JOIN fields
     RTF-->>DF: Validation OK or WHITELIST_VIOLATION
-    DF->>DF: Assert JOIN count <= 3
-    DF->>DF: Build COQL with JOIN ON, WHERE, GROUP BY, LIMIT/OFFSET
+    DF->>DF: Assert Lookup traversal count <= 2
+    DF->>DF: Build COQL with dot notation, WHERE, GROUP BY, LIMIT/OFFSET
     DF->>COQL: Execute COQL query
-    COQL-->>DF: Result rows up to 200 with has_more flag
+    COQL-->>DF: Result rows up to 100 with has_more flag
     DF-->>FE: status, data, page, has_more, credits_used_estimate
     FE-->>U: Render read-only result table (copy-protected)
 ```
@@ -542,11 +548,12 @@ Browser DevTools can always access network responses. These controls prevent cas
 |---|---|
 | Large module full scan | Enforced minimum WHERE clause on modules with > 50,000 records. Checked at Deluge validation time. |
 | JOIN on non-indexed fields | Blocked at whitelist level: only `Is_Join_Key = true` fields (Lookup type) allowed as JOIN ON keys. |
-| 3-way JOIN performance | Maximum 3 JOIN modules enforced. Each additional JOIN multiplies query scan cost. |
+| 2-way Lookup traversal limit | Maximum 2 Lookup traversals enforced (COQL official limit). Each additional traversal multiplies query scan cost and may cause Zoho to reject the query entirely. |
 | N+1 fetch pattern | Single COQL query fetches all joined fields in one call. No separate per-row lookups. |
-| Pagination | `LIMIT 200 OFFSET N` per page. User-initiated next-page to prevent auto-draining credits. |
-| Credit exhaustion | `page_size` capped at 200. Credit estimate returned in every response. Warning shown in UI when threshold breached. |
-| Preset list load | `get_my_report_settings` uses indexed `Owner` Lookup field for owned presets. Shared preset lookup uses a string-contains search on `Shared_With_Users` — may be slow if that field has many records; consider a separate join table if preset volume exceeds 10,000. |
+| Pagination | `LIMIT 100 OFFSET N` per page. User-initiated next-page to prevent auto-draining credits. |
+| Credit exhaustion | `page_size` capped at 100. Credit estimate returned in every response. Warning shown in UI when threshold breached. |
+| Preset list load | `get_my_report_settings` uses indexed `Owner` Lookup field for owned presets. Shared preset lookup uses a string-contains search on `Shared_With_Users` — acceptable at low volume but degrades linearly as total preset records grow. |
+| `Shared_With_Users` split decision | Keep `Shared_With_Users` as a JSON field in `Saved_Report_Settings` while total preset records ≤ 5,000 AND the string-contains search returns in < 2s in sandbox testing. If either condition is violated, migrate sharing data to a dedicated `Preset_Share` custom tab (fields: `Preset_ID` Lookup, `Shared_User_ID` text, `Granted_At` date) and update `get_my_report_settings` to JOIN against it. Re-evaluate at the 1,000-record mark during production monitoring. |
 
 ---
 
@@ -636,8 +643,10 @@ zoho-crm-report-widget/
 | Test Case | Function | Coverage |
 |---|---|---|
 | Valid single-module query with dot notation Lookup field executes without error | `execute_custom_report` | Happy path — dot notation |
-| Valid query with 3 Lookup traversals executes without error | `execute_custom_report` | Happy path — max traversals |
-| Request with 4 Lookup traversals returns `JOIN_LIMIT_EXCEEDED` | `execute_custom_report` | Traversal cap |
+| Valid query with 2 Lookup traversals executes without error | `execute_custom_report` | Happy path — max traversals |
+| Request with 3 Lookup traversals returns `JOIN_LIMIT_EXCEEDED` | `execute_custom_report` | Traversal cap (COQL official max is 2) |
+| Zoho 429 response returns `TOO_MANY_REQUESTS` with no retry | `execute_custom_report` | Rate limit handling |
+| Execution with credits < threshold returns `CREDIT_EXCEEDED` without calling COQL | `execute_custom_report` | Credit stop condition |
 | Dot notation field on non-Lookup field returns `WHITELIST_VIOLATION` | `execute_custom_report` | Dot notation key validation |
 | Request with module not in whitelist returns `WHITELIST_VIOLATION` | `execute_custom_report` | Whitelist enforcement |
 | Save by non-owner returns `FORBIDDEN` | `save_user_report_setting` | Ownership check |
@@ -668,7 +677,7 @@ Before development starts:
 - [x] JOIN key constraint (Lookup-only) documented
 - [x] PII handling decision documented (whitelist controls exposure)
 - [x] Every Deluge function has input schema, output schema, and error table
-- [x] Pagination strategy defined (user-initiated, 200/page)
+- [x] Pagination strategy defined (user-initiated, 100/page)
 - [x] Sequence diagrams for all major flows (3+ systems)
 - [x] Error handling defined for every function
 - [x] State transition diagrams present (frontend + preset)
