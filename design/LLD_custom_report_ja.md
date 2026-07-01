@@ -101,9 +101,7 @@
   ],
   "group_by": [
     { "field": "Account_Name.Account_Name", "is_lookup": true }
-  ],
-  "page": 1,
-  "page_size": 100
+  ]
 }
 ```
 
@@ -147,13 +145,15 @@ visible_to_current_user = (record.Owner == current_user_id)
 API クレジット消費を最小化するために:
 
 - **オンデマンド実行**: バックエンド（`execute_custom_report`）はユーザーが「レポート生成」ボタンを明示的にクリックしたときの**み**呼び出す。項目選択・フィルター・集計設定の変更は React State のみを更新 — バックグラウンド呼び出しは発生しない。
-- **React State キャッシュ**: Deluge から結果が返されると `reportData` React State 変数に保存される。ソート・表示フィルター・スクロールはすべてこのキャッシュ状態で動作する。
-- **キャッシュ無効化**: ユーザーが再度「レポート生成」をクリック（新規クエリ）またはレポート設定を変更するとキャッシュはクリアされる。最後の実行以降に設定が変更された場合、UI に「結果が古い可能性があります — 更新するにはレポート生成をクリックしてください」バナーを表示する。
+- **チャンクベース React State キャッシュ**: `execute_custom_report` は 1 回の COQL 呼び出しで最大 2,000 件（1 チャンク）を返す。チャンク全体を `reportData` React State 配列に保存する。UI は 100 件/ページでこの in-memory 配列をスライス表示 — チャンク内のページ操作はバックエンド呼び出しなし・クレジット消費なし。
+- **チャンク境界でのフェッチ**: ユーザーが現在のチャンクの最終レコードを超えたページ（例: 2,000 件チャンクならページ 21）へ移動したとき、`chunk` パラメーターをインクリメントして `execute_custom_report` を再呼び出しする。新しい 2,000 件チャンクが `reportData` を置き換える。
+- **キャッシュ無効化**: ユーザーが再度「レポート生成」をクリック（新規クエリ、`chunk=0`）またはレポート設定を変更するとキャッシュはクリアされる。最後の実行以降に設定が変更された場合、UI に「結果が古い可能性があります — 更新するにはレポート生成をクリックしてください」バナーを表示する。
 
 ```
 ユーザーが設定変更 → React State 更新 → バックエンド呼び出しなし
-ユーザーが「レポート生成」クリック → キャッシュクリア → execute_custom_report 呼び出し → 結果を reportData state に保存
-ユーザーがテーブルをソート → reportData state で動作 → バックエンド呼び出しなし
+ユーザーが「レポート生成」クリック → キャッシュクリア → execute_custom_report(chunk=0) 呼び出し → 2,000 件チャンクを reportData state に保存
+ユーザーがチャンク内（ページ 1〜20）をページング → reportData を in-memory でスライス → バックエンド呼び出しなし
+ユーザーがページ 21 へ移動（チャンク境界超え）→ execute_custom_report(chunk=1) 呼び出し → ローディング表示 → reportData を新チャンクで置換
 ```
 
 ---
@@ -284,8 +284,7 @@ API クレジット消費を最小化するために:
 ```json
 {
   "config_json": "{ ... }",
-  "page": 1,
-  "page_size": 100
+  "chunk": 0
 }
 ```
 
@@ -294,9 +293,10 @@ API クレジット消費を最小化するために:
 {
   "status": "success",
   "data": [ { "Last_Name": "山田", "Account_Name": "株式会社サンプル" } ],
-  "page": 1,
-  "page_size": 100,
-  "has_more": true,
+  "chunk": 0,
+  "chunk_size": 2000,
+  "returned": 847,
+  "has_more_chunks": true,
   "credits_used_estimate": 1
 }
 ```
@@ -336,7 +336,7 @@ API クレジット消費を最小化するために:
          WHERE Target_Module = primary_module
 4. Lookup トラバーサル数（select_fields 内の一意の lookup_part 値）をカウント
    lookup_traversal_count <= 2 をアサート  // COQL 公式上限: クエリあたり 2 Lookup トラバーサル
-5. page_size <= 100 をアサート            // クレジット節約
+5. chunk >= 0 をアサート                  // 有効なゼロベースのチャンクインデックス
 ```
 
 ### 4.2 COQL ドット記法による Lookup 項目アクセス（FR-009）
@@ -346,11 +346,11 @@ API クレジット消費を最小化するために:
 **ドット記法の構文:**
 
 ```sql
--- Lookup 項目の関連レコード項目へのアクセス:
+-- Lookup 項目の関連レコード項目へのアクセス（chunk=0）:
 SELECT Last_Name, Account_Name.Account_Name, Account_Name.Phone
 FROM Leads
 WHERE Lead_Status = 'Open - Not Contacted'
-LIMIT 100 OFFSET 0
+LIMIT 2000 OFFSET 0
 ```
 
 この例では `Account_Name` が `Leads` の Lookup 項目であり、`Account_Name.Account_Name` / `Account_Name.Phone` が関連する `Accounts` レコードの項目にアクセスしている。
@@ -377,7 +377,7 @@ select_fields 内で Is_Join_Key = true の各項目について:
 | ドット記法項目は `Is_Join_Key = true` かつ `Data_Type = Lookup` であること | Lookup 項目のみドット記法をサポート。プレーンテキスト項目は関連レコードをトラバースできない。 |
 | クエリあたり最大 2 Lookup トラバーサル | COQL 公式仕様で Lookup トラバーサルは最大 2 に制限。この上限を超えると Zoho がクエリを拒否または未定義の結果を返す可能性がある。 |
 | プライマリモジュールのレコード数が 50,000 件超の場合、最低 1 つの WHERE フィルターが必須 | フィルターなしで大規模モジュール（リード・連絡先）を全件スキャンするとクレジットを圧迫しパフォーマンスが低下する。Deluge が実行前にモジュールのレコード数を確認する。 |
-| `LIMIT` は `page_size`（最大 100 件/ページ）固定; `OFFSET = (page - 1) * page_size` | COQL のハード上限は 1 リクエストあたり 2,000 件。クレジット節約とレスポンス時間を 5 秒以内に抑えるため 100 件に上限設定。 |
+| `LIMIT 2000 OFFSET (chunk * 2000)` — `chunk` はゼロベースのインデックス | COQL のハード上限は 1 リクエストあたり 2,000 件。バックエンドはチャンク全体を取得; UI は in-memory で 100 件/ページにスライス。 |
 | `SELECT *` 禁止 | ホワイトリストに明示された項目のみ SELECT に含める。ホワイトリスト外の項目による不意の PII 露出を防止。 |
 | すべての COQL を `zoho.crm.coql` 経由で実行 | 単一の API メソッドにデータアクセスを集約（COQL ハード上限: 1 呼び出し 2,000 件; 1 ページあたり 100 件に上限設定）。標準検索 API よりクレジット消費が少ない。 |
 
@@ -389,7 +389,7 @@ select_fields 内で Is_Join_Key = true の各項目について:
 SELECT Account_Name.Account_Name, SUM(Annual_Revenue) AS Total_Revenue
 FROM Leads
 GROUP BY Account_Name.Account_Name
-LIMIT 100 OFFSET 0
+LIMIT 2000 OFFSET 0  -- chunk=0; OFFSET = chunk * 2000
 ```
 
 `select_fields` 内の非集計項目は `group_by` にも存在する必要がある（標準 SQL ルール — クエリビルド前に検証）。
@@ -402,11 +402,11 @@ Zoho CRM は org あたりの日次 API クレジットクォータを強制す�
 
 | 制御 | 実装 |
 |---|---|
-| `page_size` を 100 件に上限設定 | 2,000 件を一度に取得する場合と比較してクレジット消費を削減 |
+| バックエンド呼び出し 1 回でチャンク全体（最大 2,000 件）を取得 | チャンク内の 20 ページを 1 クレジットで提供。1 ページ 100 件のアプローチと比較して最大 20 倍のクレジット節約。 |
 | ページ取得はユーザー起点 | 自動ページングなし。ユーザーが「次のページを読み込む」をクリックする必要がある。クレジットの無制限消費を防止。 |
 | クレジット警告 | Deluge が `zoho.crm.getOrgVariable`（利用可能な場合）を使用して残余日次クレジットを推定し、毎レスポンスに `credits_used_estimate` を含める。クレジット予算が設定済み閾値を下回るとフロントエンドに警告バナーを表示。 |
 | **実行停止条件** | 推定残余クレジット < `CREDIT_STOP_THRESHOLD`（デフォルト: 50 クレジット）の場合、Deluge は COQL クエリを実行せず即座に `CREDIT_EXCEEDED` を返す。フロントエンドに「クレジット予算が枯渇しました — 管理者にお問い合わせください」メッセージを表示する。この閾値は org 変数で設定可能なため管理者はコード変更なしで調整できる。 |
-| `TOO_MANY_REQUESTS` ハンドリング | `zoho.crm.coql` が 429 エラーを返した場合、Deluge はフロントエンドに `TOO_MANY_REQUESTS` を返す。フロントエンドに「レート制限に達しました — 30 秒後に再試行してください」メッセージを表示。Deluge 側でのリトライループなし（クレジット積み上げを回避）。 |
+| `TOO_MANY_REQUESTS` ハンドリング | `zoho.crm.coql` が 429 エラーを返した場合、Deluge はフロントエンドに `TOO_MANY_REQUESTS` を返す。フロントエンドに「サーバーが混んでいます — しばらく待ってから再試行してください」メッセージを表示し、Run ボタンを 30 秒間無効化する。Deluge 側でのリトライループなし（クレジット積み上げを回避）。ユーザーはエラーではなく遅延を体感する。 |
 | `TIMEOUT` ハンドリング | Deluge Function のタイムアウトは通常 10〜30 秒。COQL 呼び出しがタイムアウト予算内に返らない場合、Deluge は `TIMEOUT` を返す。フロントエンドはインデックス付き項目（例: 日付範囲）でより制限的な WHERE フィルターを追加するようユーザーに案内する。 |
 | クエリ複雑度の上限 | Lookup トラバーサル最大 2 件 + 大規模モジュールでの最低 1 件の WHERE によりクエリあたりのクレジット負荷を制限。 |
 | 管理者への可視性 | 管理者監査のため実行ごとに `credits_used_estimate` をログ記録。 |
@@ -427,17 +427,17 @@ sequenceDiagram
     participant COQL as Zoho COQL エンジン
 
     U->>FE: モジュール・項目・フィルターを選択して実行をクリック
-    FE->>DF: execute_custom_report(config_json, page 1, page_size 100)
+    FE->>DF: execute_custom_report(config_json, chunk=0)
     DF->>RTM: リクエストされた各モジュールがホワイトリストに存在することを検証
     RTM-->>DF: 検証 OK または WHITELIST_VIOLATION
     DF->>RTF: 項目を検証し JOIN 項目の Is_Join_Key を確認
     RTF-->>DF: 検証 OK または WHITELIST_VIOLATION
     DF->>DF: Lookup トラバーサル数 <= 2 をアサート
-    DF->>DF: ドット記法・WHERE・GROUP BY・LIMIT/OFFSET で COQL をビルド
+    DF->>DF: ドット記法・WHERE・GROUP BY・LIMIT 2000 OFFSET 0 で COQL をビルド
     DF->>COQL: COQL クエリを実行
-    COQL-->>DF: has_more フラグ付きで最大 100 件の結果行
-    DF-->>FE: status, data, page, has_more, credits_used_estimate
-    FE-->>U: 読み取り専用結果テーブルをレンダリング（コピー抑止済み）
+    COQL-->>DF: has_more_chunks フラグ付きで最大 2,000 件の結果行（1 チャンク）
+    DF-->>FE: status, data, chunk, chunk_size, returned, has_more_chunks, credits_used_estimate
+    FE-->>U: 読み取り専用結果テーブルをレンダリング（100 件/ページ、コピー抑止済み）
 ```
 
 ### フロー 2: プリセットの保存と共有
@@ -485,7 +485,7 @@ sequenceDiagram
     DG-->>FE: presets 配列
     FE-->>U2: 共有プリセットのラベル付きプリセットリストを表示
     U2->>FE: 共有プリセットを選択して実行をクリック
-    FE->>DF: execute_custom_report(プリセットの config_json, page 1)
+    FE->>DF: execute_custom_report(プリセットの config_json, chunk=0)
     DF-->>FE: レポート結果
     FE-->>U2: 読み取り専用結果テーブルをレンダリング
 ```
@@ -542,8 +542,8 @@ resultTableRef.current.addEventListener('keydown', (e) => {
 | インデックス付きでない項目への JOIN | ホワイトリストレベルでブロック: JOIN ON キーとして使用できるのは `Is_Join_Key = true` の項目（Lookup タイプ）のみ。 |
 | 2 方向 Lookup トラバーサル上限 | 最大 2 Lookup トラバーサルを強制（COQL 公式上限）。追加のトラバーサルはクエリスキャンコストを乗算し、Zoho がクエリ全体を拒否する可能性がある。 |
 | N+1 フェッチパターン | 単一の COQL クエリで JOIN 済みの全項目を一括取得。行ごとの個別ルックアップなし。 |
-| ページング | 1 ページあたり `LIMIT 100 OFFSET N`。クレジットの自動消費を防ぐためユーザー起点の次ページ読み込み。 |
-| クレジット枯渇 | `page_size` を 100 件に上限設定。毎レスポンスでクレジット推定値を返却。閾値を超えると UI に警告を表示。 |
+| ページング | バックエンド呼び出し 1 回で最大 2,000 件を取得（`LIMIT 2000 OFFSET (chunk * 2000)`）。UI は in-memory チャンクを 100 件/ページでスライス — チャンク内のページはクレジット消費なし。チャンク境界超えのみ新規バックエンド呼び出し。 |
+| クレジット枯渇 | チャンク内の最大 20 ページを 1 クレジットで提供。毎レスポンスでクレジット推定値を返却。閾値を超えると UI に警告を表示。 |
 | プリセットリストの読み込み | `get_my_report_settings` は所有プリセットにインデックス付きの `Owner` Lookup 項目を使用。共有プリセットの検索は `Shared_With_Users` への文字列含有検索を使用 — 低件数では許容範囲だが、プリセットレコード総数の増加とともに線形に低下する。 |
 | `Shared_With_Users` の別テーブル化判断 | 総プリセットレコード数 ≤ 5,000 件かつサンドボックステストでの文字列含有検索が 2 秒以内に返る間は `Saved_Report_Settings` 内の JSON 項目として `Shared_With_Users` を維持する。いずれかの条件が違反された場合、共有データを専用の `Preset_Share` カスタムタブ（項目: `Preset_ID` Lookup・`Shared_User_ID` テキスト・`Granted_At` 日付）に移行し、`get_my_report_settings` を更新して JOIN を使用する。本番監視での 1,000 件到達時に再評価する。 |
 
@@ -559,10 +559,13 @@ stateDiagram-v2
     アイドル --> ビルド中 : ユーザーがモジュール/項目を選択
     ビルド中 --> 準備完了 : 必要な入力がすべて入力済み
     ビルド中 --> アイドル : ユーザーが選択をクリア
-    準備完了 --> 実行中 : ユーザーが実行をクリック
-    実行中 --> 結果表示 : データが正常に返却された
+    準備完了 --> 実行中 : ユーザーが実行をクリック（chunk=0）
+    実行中 --> 結果表示 : データが正常に返却された（チャンクを reportData に保存）
+    実行中 --> 待機中 : Zoho が 429 を返す
     実行中 --> エラー : Function がエラーを返す
-    結果表示 --> 実行中 : ユーザーが次のページをクリック
+    待機中 --> 準備完了 : 30 秒後（Run ボタン再有効化）
+    結果表示 --> 結果表示 : ユーザーがチャンク内のページを操作（バックエンド呼び出しなし）
+    結果表示 --> 実行中 : ユーザーがチャンク境界を超えたページへ移動（chunk+1）
     結果表示 --> ビルド中 : ユーザーが条件を変更
     エラー --> 準備完了 : ユーザーがエラーを閉じる
     結果表示 --> [*]
@@ -652,6 +655,8 @@ zoho-crm-report-widget/
 |---|---|
 | Lookup ドット記法を用いた完全レポートフロー: 項目選択 → 実行 → 結果表示 | React ウィジェット + Deluge + COQL |
 | 設定変更がバックエンド呼び出しをトリガーしない — レポート生成ボタンのみがトリガー | React ウィジェット（状態テスト） |
+| チャンク内でページ 1 からページ 20 への移動がゼロのバックエンド呼び出しで完了する | React ウィジェット（状態テスト） |
+| ページ 21 への移動が chunk=1 の新規バックエンド呼び出しを 1 回トリガーする | React ウィジェット + Deluge |
 | 2 回目の実行がキャッシュではなく新規バックエンド呼び出しを使用する | React ウィジェット + Deluge |
 | 保存 → 共有 → 受信者が読み込んで実行 | React ウィジェット + Deluge + `Saved_Report_Settings` |
 | 結果テーブルへのコピー試行がブロックされる | React ウィジェット（ブラウザイベントテスト） |
@@ -669,7 +674,7 @@ zoho-crm-report-widget/
 - [x] JOIN キー制約（Lookup のみ）を文書化
 - [x] PII 取り扱いの決定を文書化（ホワイトリストで露出を制御）
 - [x] すべての Deluge Function に入力スキーマ・出力スキーマ・エラーテーブルを定義
-- [x] ページング戦略の定義（ユーザー起点、100 件/ページ）
+- [x] ページング戦略の定義（チャンクベース: バックエンド 2,000 件/チャンク、UI 100 件/ページ、チャンク境界超えのみバックエンド呼び出し）
 - [x] 主要フロー（3 システム以上）のシーケンス図を作成
 - [x] すべての Function でエラーハンドリングを定義
 - [x] 状態遷移図（フロントエンド + プリセット）を作成

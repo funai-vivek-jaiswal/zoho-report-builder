@@ -155,13 +155,17 @@ All functions are invoked via `ZOHO.CRM.FUNCTIONS.execute(function_name, {argume
 To minimize API credit consumption:
 
 - **On-demand execution**: The backend (`execute_custom_report`) is called **only** when the user explicitly clicks the "Generate Report" button. Changing field selections, filters, or aggregation settings updates React State only — no background calls.
-- **React State cache**: Once results are returned from Deluge, they are stored in a `reportData` React State variable. Sorting, filtering the display, and scrolling operate entirely on this cached state.
+- **Chunk-based React State cache**: Each backend call returns up to 2,000 records in a single COQL call. The full array is stored in `reportData` React State. The UI slices this array at 100 records per page — page turns within the chunk require **no backend call and consume no API credits**.
+- **Next-chunk fetch**: When the user navigates to a page beyond the current chunk (i.e., requests records past index 2,000), the frontend calls `execute_custom_report` again with the next `chunk` index (`OFFSET` advanced by 2,000). A loading indicator is shown during the fetch — users experience "slow page turn" rather than an error.
+- **Loading/progress state**: The frontend shows a progress spinner during any active backend call. If Zoho returns a 429 rate-limit error, the widget displays "Server is busy — please wait a moment and try again" rather than a hard error, so concurrent users experience slowness, not failure.
 - **Cache invalidation**: The cache is cleared when the user clicks "Generate Report" again (new query) or modifies the report configuration. The UI shows a "Results may be outdated — click Generate to refresh" banner when config has changed since the last run.
 
 ```
 User modifies config → React State updated → no backend call
-User clicks "Generate Report" → clear cache → call execute_custom_report → store result in reportData state
-User sorts table → operates on reportData state → no backend call
+User clicks "Generate Report" → clear cache → call execute_custom_report(chunk=0) → store 2,000-record chunk in reportData
+User pages within chunk (page 1–20) → slice reportData in memory → no backend call
+User navigates past page 20 → call execute_custom_report(chunk=1) → show loading → replace reportData with new chunk
+User sorts table → operates on current reportData chunk → no backend call
 ```
 
 ---
@@ -292,22 +296,26 @@ User sorts table → operates on reportData state → no backend call
 ```json
 {
   "config_json": "{ ... }",
-  "page": 1,
-  "page_size": 100
+  "chunk": 0
 }
 ```
+
+> `chunk` is a zero-based index. `chunk=0` → `OFFSET 0`, `chunk=1` → `OFFSET 2000`, etc. The backend always fetches up to 2,000 records per call.
 
 **Output:**
 ```json
 {
   "status": "success",
   "data": [ { "Last_Name": "Smith", "Account_Name": "Acme Corp" } ],
-  "page": 1,
-  "page_size": 100,
-  "has_more": true,
+  "chunk": 0,
+  "chunk_size": 2000,
+  "returned": 847,
+  "has_more_chunks": true,
   "credits_used_estimate": 1
 }
 ```
+
+> `returned` is the actual count in `data` (≤ 2,000). `has_more_chunks: false` when the dataset is exhausted. The frontend handles UI pagination (100/page) by slicing `data` in memory — no additional backend calls until `has_more_chunks` and the user reaches the last UI page in the chunk.
 
 **Logic:** See Section 4 (COQL Query Construction) for detailed build steps.
 
@@ -344,7 +352,8 @@ User sorts table → operates on reportData state → no backend call
          WHERE Target_Module = primary_module
 4. Count lookup traversals (unique lookup_part values in select_fields)
    assert lookup_traversal_count <= 2   // COQL official max: 2 Lookup traversals per query
-5. assert page_size <= 100              // credit conservation
+5. assert chunk >= 0                    // chunk index must be non-negative
+   // page_size is always 2000; no client override allowed
 ```
 
 ### 4.2 Lookup Field Access via COQL Dot Notation (FR-009)
@@ -358,7 +367,7 @@ Related module fields are accessed using **COQL dot notation** — not explicit 
 SELECT Last_Name, Account_Name.Account_Name, Account_Name.Phone
 FROM Leads
 WHERE Lead_Status = 'Open - Not Contacted'
-LIMIT 100 OFFSET 0
+LIMIT 2000 OFFSET 0   -- chunk=0; OFFSET = chunk * 2000
 ```
 
 In this example, `Account_Name` is the Lookup field on `Leads`, and `Account_Name.Account_Name` / `Account_Name.Phone` access fields on the related `Accounts` record.
@@ -385,9 +394,9 @@ For each field in select_fields where Is_Join_Key = true:
 | Dot notation fields must have `Is_Join_Key = true` and `Data_Type = Lookup` | Only Lookup fields support dot notation. Plain text fields cannot traverse to related records. |
 | Maximum 2 Lookup traversals per query | COQL official specification limits Lookup traversals to 2. Beyond this limit, Zoho may reject the query or return undefined results. |
 | At least one `WHERE` filter required when the primary module has > 50,000 records | Full-scan over large modules (Leads, Contacts) without a filter hits credit limits and degrades performance. Deluge checks module record count before executing. |
-| `LIMIT` fixed at `page_size` (max 100 per page); `OFFSET = (page - 1) * page_size` | COQL hard limit is 2,000 per request. We cap at 100 to conserve credits and keep response time < 5s. |
+| `LIMIT 2000 OFFSET (chunk * 2000)` | Fetch the maximum COQL allows per call. The frontend serves up to 20 UI pages (100 records each) from a single credit-consuming call. Next backend call fires only when the chunk is exhausted. |
 | No `SELECT *` | Only explicitly whitelisted fields are included in SELECT, preventing accidental PII exposure from un-whitelisted fields. |
-| All COQL executed via `zoho.crm.coql` | Consolidates all data access to a single API method (COQL hard limit: 2,000 per call; we cap at 100 per page). Avoids mixing standard search APIs which consume more credits per record. |
+| All COQL executed via `zoho.crm.coql` | Consolidates all data access to a single API method (2,000 records per call, 1 credit per call). Avoids mixing standard search APIs which consume more credits per record. |
 
 ### 4.3 Aggregate Queries
 
@@ -397,7 +406,7 @@ When `aggregations` is non-empty, the query uses GROUP BY:
 SELECT Account_Name.Account_Name, SUM(Annual_Revenue) AS Total_Revenue
 FROM Leads
 GROUP BY Account_Name.Account_Name
-LIMIT 100 OFFSET 0
+LIMIT 2000 OFFSET 0   -- chunk=0
 ```
 
 Non-aggregate fields in `select_fields` must also appear in `group_by` (standard SQL rule — validated before query build).
@@ -410,11 +419,11 @@ Zoho CRM enforces a daily API credit quota per org. Each COQL call consumes 1 cr
 
 | Control | Implementation |
 |---|---|
-| `page_size` capped at 100 | Reduces credits needed vs. fetching 2,000 records at once |
-| Page fetch is user-initiated | No auto-pagination. User must click "Load Next Page". Prevents runaway credit consumption. |
+| Fetch 2,000 records per backend call | Each COQL call (1 credit) returns a full chunk. The frontend serves up to 20 UI pages (100 records/page) from that chunk with zero additional credits. Reduces total credit consumption vs. 100-per-call approach by up to 20×. |
+| Chunk fetch is user-initiated | No auto-chunk-loading. User must navigate to the last page in the current chunk before the next chunk loads. Prevents runaway credit consumption. |
 | Credit warning | Deluge estimates remaining daily credits using `zoho.crm.getOrgVariable` (if available) and includes `credits_used_estimate` in every response. Frontend shows a warning banner when credit budget drops below a configurable threshold. |
 | **Execution stop condition** | If estimated remaining credits < `CREDIT_STOP_THRESHOLD` (default: 50 credits), Deluge returns `CREDIT_EXCEEDED` immediately without executing the COQL query. The frontend displays a "Credit budget exhausted — contact admin" message. This threshold is configurable via an org variable so admins can adjust without code change. |
-| `TOO_MANY_REQUESTS` handling | If `zoho.crm.coql` returns a 429 error, Deluge returns `TOO_MANY_REQUESTS` to the frontend. The frontend shows a "Rate limit reached — please wait 30 seconds and retry" message. No retry loop in Deluge (avoids stacking credits). |
+| `TOO_MANY_REQUESTS` handling | If `zoho.crm.coql` returns a 429 error, Deluge returns `TOO_MANY_REQUESTS` to the frontend. The frontend shows "Server is busy — please wait a moment and try again" (not a hard error). The Run button is re-enabled after 30 seconds. No retry loop in Deluge (avoids stacking credits). Users experience slowness, not failure — matching the team's intent for concurrent-user scenarios. |
 | `TIMEOUT` handling | Deluge function timeout is typically 10–30s. If the COQL call does not return within the timeout budget, Deluge returns `TIMEOUT`. The frontend advises the user to add a more restrictive WHERE filter (e.g., date range on an indexed field). |
 | Query complexity cap | 2 Lookup traversals max + 1 WHERE minimum on large modules limits per-query credit weight. |
 | Admin visibility | `credits_used_estimate` is logged per execution for admin audit. |
@@ -435,17 +444,18 @@ sequenceDiagram
     participant COQL as Zoho COQL Engine
 
     U->>FE: Select modules, fields, filters then click Run
-    FE->>DF: execute_custom_report(config_json, page 1, page_size 100)
+    FE->>DF: execute_custom_report(config_json, chunk=0)
     DF->>RTM: Validate each requested module exists in whitelist
     RTM-->>DF: Validation OK or WHITELIST_VIOLATION
     DF->>RTF: Validate fields and check Is_Join_Key for JOIN fields
     RTF-->>DF: Validation OK or WHITELIST_VIOLATION
     DF->>DF: Assert Lookup traversal count <= 2
-    DF->>DF: Build COQL with dot notation, WHERE, GROUP BY, LIMIT/OFFSET
+    DF->>DF: Build COQL with dot notation, WHERE, GROUP BY, LIMIT 2000 OFFSET 0
     DF->>COQL: Execute COQL query
-    COQL-->>DF: Result rows up to 100 with has_more flag
-    DF-->>FE: status, data, page, has_more, credits_used_estimate
-    FE-->>U: Render read-only result table (copy-protected)
+    COQL-->>DF: Up to 2,000 result rows with has_more_chunks flag
+    DF-->>FE: status, data[0..n], chunk, has_more_chunks, credits_used_estimate
+    FE->>FE: Store full chunk in reportData state; show page 1 (rows 0–99)
+    FE-->>U: Render read-only result table — page 1 of up to 20 (copy-protected)
 ```
 
 ### Flow 2: Save and Share a Preset
@@ -550,8 +560,8 @@ Browser DevTools can always access network responses. These controls prevent cas
 | JOIN on non-indexed fields | Blocked at whitelist level: only `Is_Join_Key = true` fields (Lookup type) allowed as JOIN ON keys. |
 | 2-way Lookup traversal limit | Maximum 2 Lookup traversals enforced (COQL official limit). Each additional traversal multiplies query scan cost and may cause Zoho to reject the query entirely. |
 | N+1 fetch pattern | Single COQL query fetches all joined fields in one call. No separate per-row lookups. |
-| Pagination | `LIMIT 100 OFFSET N` per page. User-initiated next-page to prevent auto-draining credits. |
-| Credit exhaustion | `page_size` capped at 100. Credit estimate returned in every response. Warning shown in UI when threshold breached. |
+| Pagination | Backend fetches `LIMIT 2000 OFFSET (chunk * 2000)`. Frontend slices at 100/page in memory — no backend call for pages 2–20 within a chunk. Next backend call only at chunk boundary. |
+| Credit exhaustion | Each backend call costs 1 credit (2,000 records). Up to 20 UI pages served per credit. Credit estimate returned in every response. Warning shown in UI when threshold breached. |
 | Preset list load | `get_my_report_settings` uses indexed `Owner` Lookup field for owned presets. Shared preset lookup uses a string-contains search on `Shared_With_Users` — acceptable at low volume but degrades linearly as total preset records grow. |
 | `Shared_With_Users` split decision | Keep `Shared_With_Users` as a JSON field in `Saved_Report_Settings` while total preset records ≤ 5,000 AND the string-contains search returns in < 2s in sandbox testing. If either condition is violated, migrate sharing data to a dedicated `Preset_Share` custom tab (fields: `Preset_ID` Lookup, `Shared_User_ID` text, `Granted_At` date) and update `get_my_report_settings` to JOIN against it. Re-evaluate at the 1,000-record mark during production monitoring. |
 
@@ -568,9 +578,12 @@ stateDiagram-v2
     Building --> Ready : All required inputs filled
     Building --> Idle : User clears selection
     Ready --> Executing : User clicks Run
-    Executing --> Results : Data returned successfully
-    Executing --> Error : Function returns error
-    Results --> Executing : User clicks Next Page
+    Executing --> Results : Chunk returned successfully
+    Executing --> Waiting : Zoho returns 429 (busy)
+    Waiting --> Ready : User retries after cooldown
+    Executing --> Error : Unrecoverable error (whitelist, timeout, credit exceeded)
+    Results --> Results : User pages within chunk (in-memory, no backend call)
+    Results --> Executing : User reaches end of chunk and requests next chunk
     Results --> Building : User modifies conditions
     Error --> Ready : User dismisses error
     Results --> [*]
@@ -660,6 +673,8 @@ zoho-crm-report-widget/
 |---|---|
 | Full report flow with Lookup dot notation: select fields → run → results display | React Widget + Deluge + COQL |
 | Config change does NOT trigger backend call — only Generate Report button does | React Widget (state test) |
+| Paging from page 1 to page 20 within a chunk makes zero backend calls | React Widget (state test) |
+| Navigating to page 21 (chunk boundary) triggers one new backend call with chunk=1 | React Widget + Deluge |
 | Second run uses fresh backend call, not stale cache | React Widget + Deluge |
 | Save → share → recipient loads and runs | React Widget + Deluge + `Saved_Report_Settings` |
 | Copy attempt on result table blocked | React Widget (browser event test) |
@@ -677,7 +692,7 @@ Before development starts:
 - [x] JOIN key constraint (Lookup-only) documented
 - [x] PII handling decision documented (whitelist controls exposure)
 - [x] Every Deluge function has input schema, output schema, and error table
-- [x] Pagination strategy defined (user-initiated, 100/page)
+- [x] Pagination strategy defined (2,000-record chunk per backend call; UI slices at 100/page in memory; next backend call only at chunk boundary)
 - [x] Sequence diagrams for all major flows (3+ systems)
 - [x] Error handling defined for every function
 - [x] State transition diagrams present (frontend + preset)
