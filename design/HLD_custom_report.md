@@ -203,7 +203,7 @@ graph TD
 
 | Metric | Current Estimate | Breaks At |
 |---|---|---|
-| Concurrent widget users | No app-level limit enforced | Zoho platform handles concurrent load natively. No application-level error threshold. If Zoho returns 429, the frontend shows a "please wait and retry" message. Users experience slowness, not an error. |
+| Concurrent widget users | No app-level limit enforced | Zoho platform handles concurrent load natively. No application-level error threshold. If Zoho returns 429, the frontend stays in loading/spinner state and silently auto-retries after 30 s (up to 3 times) — no error message shown. Users experience slowness, not an error. |
 | Records per backend fetch | Up to 2,000 per COQL call | COQL hard limit; UI slices the in-memory chunk at 100 records/page. Next chunk fetched only when current chunk is exhausted. |
 | JOIN modules per query | Up to 2 | COQL official specification limits Lookup traversals to 2; behavior is undefined beyond this |
 | Saved presets per user | Unlimited (CRM tab records) | No functional limit; UI should paginate preset list above 50 presets |

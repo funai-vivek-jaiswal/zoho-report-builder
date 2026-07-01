@@ -157,7 +157,7 @@ To minimize API credit consumption:
 - **On-demand execution**: The backend (`execute_custom_report`) is called **only** when the user explicitly clicks the "Generate Report" button. Changing field selections, filters, or aggregation settings updates React State only — no background calls.
 - **Chunk-based React State cache**: Each backend call returns up to 2,000 records in a single COQL call. The full array is stored in `reportData` React State. The UI slices this array at 100 records per page — page turns within the chunk require **no backend call and consume no API credits**.
 - **Next-chunk fetch**: When the user navigates to a page beyond the current chunk (i.e., requests records past index 2,000), the frontend calls `execute_custom_report` again with the next `chunk` index (`OFFSET` advanced by 2,000). A loading indicator is shown during the fetch — users experience "slow page turn" rather than an error.
-- **Loading/progress state**: The frontend shows a progress spinner during any active backend call. If Zoho returns a 429 rate-limit error, the widget displays "Server is busy — please wait a moment and try again" rather than a hard error, so concurrent users experience slowness, not failure.
+- **Loading/progress state**: The frontend shows a progress spinner during any active backend call. If Zoho returns a 429 rate-limit error, the spinner stays on screen — no error message is shown. The frontend silently auto-retries the same call after 30 seconds (up to 3 times). Users see "still loading" not "something went wrong."
 - **Cache invalidation**: The cache is cleared when the user clicks "Generate Report" again (new query) or modifies the report configuration. The UI shows a "Results may be outdated — click Generate to refresh" banner when config has changed since the last run.
 
 ```
@@ -328,7 +328,7 @@ User sorts table → operates on current reportData chunk → no backend call
 | `NO_FILTER_ON_LARGE_MODULE` | Primary module exceeds threshold and no WHERE filter provided |
 | `COQL_ERROR` | Zoho CRM rejects the generated COQL |
 | `CREDIT_LIMIT_WARNING` | Estimated remaining daily credits fall below the configured threshold — execution is blocked |
-| `TOO_MANY_REQUESTS` | Zoho API returns HTTP 429 (rate limit exceeded); execution is stopped and the user is asked to retry after a cooldown |
+| `TOO_MANY_REQUESTS` | Zoho API returns HTTP 429 (rate limit exceeded); frontend stays in loading/spinner state and auto-retries after 30 s (up to 3 times) — no error message shown to user |
 | `CREDIT_EXCEEDED` | Daily API credit quota is fully exhausted; no COQL call is made and the user is notified to contact the admin |
 | `TIMEOUT` | COQL execution exceeds the Deluge function timeout; partial result is discarded and the user is asked to add a more restrictive WHERE filter |
 
@@ -423,7 +423,7 @@ Zoho CRM enforces a daily API credit quota per org. Each COQL call consumes 1 cr
 | Chunk fetch is user-initiated | No auto-chunk-loading. User must navigate to the last page in the current chunk before the next chunk loads. Prevents runaway credit consumption. |
 | Credit warning | Deluge estimates remaining daily credits using `zoho.crm.getOrgVariable` (if available) and includes `credits_used_estimate` in every response. Frontend shows a warning banner when credit budget drops below a configurable threshold. |
 | **Execution stop condition** | If estimated remaining credits < `CREDIT_STOP_THRESHOLD` (default: 50 credits), Deluge returns `CREDIT_EXCEEDED` immediately without executing the COQL query. The frontend displays a "Credit budget exhausted — contact admin" message. This threshold is configurable via an org variable so admins can adjust without code change. |
-| `TOO_MANY_REQUESTS` handling | If `zoho.crm.coql` returns a 429 error, Deluge returns `TOO_MANY_REQUESTS` to the frontend. The frontend shows "Server is busy — please wait a moment and try again" (not a hard error). The Run button is re-enabled after 30 seconds. No retry loop in Deluge (avoids stacking credits). Users experience slowness, not failure — matching the team's intent for concurrent-user scenarios. |
+| `TOO_MANY_REQUESTS` handling | If `zoho.crm.coql` returns a 429 error, Deluge returns `TOO_MANY_REQUESTS` to the frontend. The frontend **stays in loading/spinner state — no error message is shown**. The frontend auto-retries the same call after 30 seconds, up to 3 times. No retry loop in Deluge itself (avoids stacking credits). After 3 failed retries the spinner is replaced with a soft informational note: "Taking longer than expected." Users experience slowness, not failure. |
 | `TIMEOUT` handling | Deluge function timeout is typically 10–30s. If the COQL call does not return within the timeout budget, Deluge returns `TIMEOUT`. The frontend advises the user to add a more restrictive WHERE filter (e.g., date range on an indexed field). |
 | Query complexity cap | 2 Lookup traversals max + 1 WHERE minimum on large modules limits per-query credit weight. |
 | Admin visibility | `credits_used_estimate` is logged per execution for admin audit. |
@@ -580,7 +580,8 @@ stateDiagram-v2
     Ready --> Executing : User clicks Run
     Executing --> Results : Chunk returned successfully
     Executing --> Waiting : Zoho returns 429 (busy)
-    Waiting --> Ready : User retries after cooldown
+    Waiting --> Executing : Auto-retry after 30 s (up to 3 times, silent)
+    Waiting --> Ready : User cancels
     Executing --> Error : Unrecoverable error (whitelist, timeout, credit exceeded)
     Results --> Results : User pages within chunk (in-memory, no backend call)
     Results --> Executing : User reaches end of chunk and requests next chunk
